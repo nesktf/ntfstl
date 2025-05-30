@@ -37,7 +37,7 @@ else()
   set(NTFSTL_VERSION "${NTFSTL_VER}")
 endif()
 
-message(STATUS "ntfstl: Setting up...")
+message(STATUS "ntfstl: Setting up version ${NTFSTL_VERSION}...")
 
 file(GLOB NTFSTL_SOURCES "${NTFSTL_SRC_DIR}/*.cpp")
 file(GLOB_RECURSE NTFSTL_HEADERS "${NTFSTL_INC_DIR}/ntfstl/**.hpp")
@@ -51,8 +51,7 @@ list(APPEND NTFSTL_INCLUDES ${FMT_INCLUDE_DIRS})
 list(APPEND NTFSTL_LINKS ${FMT_LIBRARIES})
 
 add_library(${PROJECT_NAME} STATIC ${NTFSTL_SOURCES} ${NTFSTL_HEADERS})
-set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 20)
+set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX CXX_STANDARD 20)
 
 if (NTFSTL_BUILD_TESTS)
   message(STATUS "ntfstl: Tests enabled")
