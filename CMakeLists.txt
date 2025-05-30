@@ -42,13 +42,12 @@ message(STATUS "ntfstl: Setting up version ${NTFSTL_VERSION}...")
 file(GLOB NTFSTL_SOURCES "${NTFSTL_SRC_DIR}/*.cpp")
 file(GLOB_RECURSE NTFSTL_HEADERS "${NTFSTL_INC_DIR}/ntfstl/**.hpp")
 configure_file("${NTFSTL_INC_DIR}/ntfstl/version.hpp.in" "include/ntfstl/version.hpp" @ONLY)
-list(APPEND NTFSTL_INCLUDES ${NTFSTL_HEADERS})
+list(APPEND NTFSTL_INCLUDES "${NTFSTL_DIR}/include")
 list(APPEND NTFSTL_INCLUDES "${CMAKE_CURRENT_BINARY_DIR}/include")
 
 # libfmt
 find_package(fmt REQUIRED)
-list(APPEND NTFSTL_INCLUDES ${FMT_INCLUDE_DIRS})
-list(APPEND NTFSTL_LINKS ${FMT_LIBRARIES})
+list(APPEND NTFSTL_LINKS fmt::fmt)
 
 add_library(${PROJECT_NAME} STATIC ${NTFSTL_SOURCES} ${NTFSTL_HEADERS})
 set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX CXX_STANDARD 20)
@@ -59,5 +58,5 @@ if (NTFSTL_BUILD_TESTS)
 endif()
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${NTFSTL_INCLUDES})
-target_link_libraries(${PROJECT_NAME} PRIVATE ${NTFSTL_LINKS})
+target_link_libraries(${PROJECT_NAME} PUBLIC ${NTFSTL_LINKS})
 # target_compile_definitions(${PROJECT_NAME} PUBLIC ${NTFSTL_DEFS})

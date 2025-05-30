@@ -334,7 +334,7 @@ public:
   }
 
 public:
-  bool empty() const noexcept { return !base_t::_has_object() || _fun_invoker == nullptr; }
+  bool empty() const noexcept { return !base_t::_has_object() && _fun_invoker == nullptr; }
 
 private:
   void _nullify(function_invoke_t fun = nullptr) noexcept {
