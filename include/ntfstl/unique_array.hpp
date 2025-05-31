@@ -287,6 +287,9 @@ public:
   pointer get() noexcept { return _arr; }
   const_pointer get() const noexcept { return _arr; }
 
+  pointer data() noexcept { return _arr; }
+  const_pointer data() const noexcept { return _arr; }
+
   bool empty() const noexcept { return _sz == 0u; }
   explicit operator bool() const noexcept { return !empty(); }
 

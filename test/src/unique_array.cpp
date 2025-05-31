@@ -267,3 +267,76 @@ TEST_CASE("unique array reset", "[unique_array]") {
     REQUIRE(arr1.size() == count2);
   }
 }
+
+namespace {
+
+struct test_pool : public ntf::malloc_pool {
+  static inline size_t alive_count = 0u;
+
+  test_pool() :
+    ntf::malloc_pool{}
+  {
+    ++alive_count;
+  }
+
+  test_pool(test_pool&&) :
+    ntf::malloc_pool{}
+  {
+    ++alive_count;
+  }
+
+  test_pool(const test_pool&) :
+    ntf::malloc_pool{}
+  {
+    ++alive_count;
+  }
+  
+  template<typename T>
+  static ntf::virtual_allocator<T> make_alloc() {
+    return ntf::virtual_allocator<T>{std::in_place_type_t<test_pool>{}};
+  }
+
+  ~test_pool() { --alive_count; }
+};
+
+class random_container {
+private:
+  using array_t = ntf::unique_array<int, ntf::allocator_delete<int, ntf::virtual_allocator<int>>>;
+
+public:
+  random_container(array_t&& arr) :
+    _arr{std::move(arr)} {}
+
+public:
+  ntf::cspan<int> span() const { return {_arr.data(), _arr.size()}; }
+
+private:
+  array_t _arr;
+};
+
+} // namespace
+
+TEST_CASE("virtual allocator in unique_array", "[unique_array]") {
+  const int copy = 10;
+  const size_t count = 10u;
+  SECTION("Simulate construction and move") {
+    test_pool pool;
+    auto arr = ntf::unique_array<int>::from_allocator(count, copy, test_pool::make_alloc<int>());
+    for (const auto& value : arr){
+      REQUIRE(value == copy);
+    }
+    auto arr2 = std::move(arr);
+    for (const auto& value : arr2) {
+      REQUIRE(value == copy);
+    }
+    random_container cont{std::move(arr2)};
+    for (const auto& value : cont.span()) {
+      REQUIRE(value == copy);
+    }
+    random_container other_cont = std::move(cont);
+    for (const auto& value : other_cont.span()) {
+      REQUIRE(value == copy);
+    }
+  }
+  REQUIRE(test_pool::alive_count == 0u);
+}
