@@ -138,9 +138,9 @@ template<typename T>
 using default_alloc_del = allocator_delete<T, std::allocator<T>>;
 template<
   meta::allocable_type T,
-  size_t buff_sz = sizeof(virtual_mem_pool),
+  size_t buff_sz = sizeof(malloc_funcs),
   move_policy policy = move_policy::copyable,
-  size_t max_align = alignof(virtual_mem_pool)
+  size_t max_align = alignof(malloc_funcs)
 >
 class virtual_allocator
   : public impl::inplace_nontrivial<

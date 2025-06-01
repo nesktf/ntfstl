@@ -7,9 +7,9 @@ namespace ntf {
 
 namespace {
 
-static const size_t page_size = static_cast<std::size_t>(sysconf(_SC_PAGE_SIZE));
-static constexpr int mem_pflag = PROT_READ | PROT_WRITE;
-static constexpr int mem_type = MAP_PRIVATE | MAP_ANONYMOUS;
+static const size_t page_size = static_cast<size_t>(sysconf(_SC_PAGE_SIZE));
+// static constexpr int mem_pflag = PROT_READ | PROT_WRITE;
+// static constexpr int mem_type = MAP_PRIVATE | MAP_ANONYMOUS;
 
 size_t next_page_mult(size_t sz) noexcept {
   return page_size*std::ceil(static_cast<float>(sz)/static_cast<float>(page_size));
@@ -21,41 +21,95 @@ struct arena_header {
   size_t size;
 };
 static constexpr size_t MIN_BLOCK_SIZE = kibs(4);
-
-std::pair<arena_header*, size_t> try_acquire_block(size_t size, void* prev = nullptr) {
-  const size_t block_sz = std::max(next_page_mult(size+sizeof(arena_header)), MIN_BLOCK_SIZE);
-  void* mem = std::malloc(block_sz);
-  if (!mem) {
-    return std::make_pair(nullptr, 0u);
-  }
-  arena_header* block = static_cast<arena_header*>(mem);
-  block->next = nullptr;
-  block->prev = static_cast<arena_header*>(prev);
-  block->size = block_sz;
-  return std::make_pair(block, block_sz);
-}
-
-void free_blocks(void* block_) {
-  if (!block_) {
-    return;
-  }
-  arena_header* block = static_cast<arena_header*>(block_);
-  while (block->next) {
-    block = block->next;
-  }
-  while (block) {
-    arena_header* prev = block->prev;
-    std::free(block);
-    block = prev;
-  }
-}
+static constexpr size_t BLOCK_ALIGN = alignof(std::max_align_t);
 
 } // namespace
 
+void* malloc_pool::allocate(size_t size, size_t align) const noexcept {
+  return std::aligned_alloc(align, size);
+}
 
-void* arena_block_manager::allocate(size_t size, size_t alignment) noexcept {
+void malloc_pool::deallocate(void* mem, size_t size) const noexcept {
+  NTF_UNUSED(size);
+  std::free(mem);
+}
+
+void* malloc_pool::malloc_fn(void* user_ptr, size_t size, size_t align) noexcept {
+  NTF_UNUSED(user_ptr);
+  return std::aligned_alloc(align, size);
+}
+
+void malloc_pool::free_fn(void* user_ptr, void* mem, size_t size) noexcept {
+  NTF_UNUSED(user_ptr);
+  NTF_UNUSED(size);
+  std::free(mem);
+}
+
+fixed_arena::fixed_arena(void* user_ptr, free_fn_t free_fn,
+              void* block, size_t block_sz) noexcept :
+  _user_ptr{user_ptr}, _free{free_fn},
+  _block{block}, _used{0u}, _allocated{block_sz} {}
+
+fixed_arena::fixed_arena(fixed_arena&& other) noexcept :
+  _user_ptr{std::move(other._user_ptr)}, _free{std::move(other._free)},
+  _block{std::move(other._block)}, _used{std::move(other._used)},
+  _allocated{std::move(other._allocated)} { other._block = nullptr; }
+
+fixed_arena::~fixed_arena() noexcept { _free_block(); }
+
+fixed_arena& fixed_arena::operator=(fixed_arena&& other) noexcept { 
+  _free_block();
+
+  _user_ptr = std::move(other._user_ptr);
+  _free = std::move(other._free);
+  _block = std::move(other._block);
+  _used = std::move(other._used);
+  _allocated = std::move(other._allocated);
+
+  other._block = nullptr;
+
+  return *this;
+}
+
+expected<fixed_arena, std::bad_alloc> fixed_arena::from_size(size_t size) noexcept {
+  const size_t block_sz = std::max(next_page_mult(size), MIN_BLOCK_SIZE);
+  void* block = malloc_pool::malloc_fn(nullptr, block_sz, BLOCK_ALIGN);
+  if (!block) {
+    return unexpected{std::bad_alloc{}};
+  }
+
+  return expected<fixed_arena, std::bad_alloc>{
+    in_place,
+    nullptr, malloc_pool::free_fn, block, block_sz
+  };
+}
+
+expected<fixed_arena, std::bad_alloc> fixed_arena::from_extern(
+  void* user_ptr, malloc_fn_t malloc_fn, free_fn_t free_fn, size_t size
+) noexcept {
+  if (!malloc_fn || !free_fn) {
+    return unexpected{std::bad_alloc{}};
+  }
+  const size_t block_sz = std::max(next_page_mult(size), MIN_BLOCK_SIZE);
+  void* block;
+  try {
+    block = std::invoke(malloc_fn, user_ptr, block_sz, BLOCK_ALIGN);
+    if (!block) {
+      return unexpected{std::bad_alloc{}};
+    }
+  } catch(...) {
+    return unexpected{std::bad_alloc{}};
+  }
+
+  return expected<fixed_arena, std::bad_alloc>{
+    in_place,
+    user_ptr, free_fn, block, block_sz
+  };
+}
+
+void* fixed_arena::allocate(size_t size, size_t align) {
   const size_t available = _allocated-_used;
-  const size_t padding = align_fw_adjust(ptr_add(_block, _used), alignment);
+  const size_t padding = align_fw_adjust(ptr_add(_block, _used), align);
   const size_t required = padding+size;
 
   if (available < required) {
@@ -67,16 +121,130 @@ void* arena_block_manager::allocate(size_t size, size_t alignment) noexcept {
   return ptr;
 }
 
-void arena_block_manager::clear() noexcept {
+void fixed_arena::deallocate(void* mem, size_t size) {
+  NTF_UNUSED(mem);
+  NTF_UNUSED(size);
+}
+
+void fixed_arena::clear() noexcept {
   _used = 0u;
 }
 
-expected<linked_arena, error<void>> linked_arena::from_size(size_t size) noexcept {
-  auto [block, block_sz] = try_acquire_block(size);
-  if (!block) {
-    return unexpected{error<void>{"Allocation failure"}};
+void fixed_arena::_free_block() noexcept {
+ if (_block) {
+    std::invoke(_free, _user_ptr, _block, _allocated);
   }
-  return linked_arena{block, block_sz};
+}
+
+linked_arena::linked_arena(void* user_ptr, malloc_fn_t malloc_fn, free_fn_t free_fn,
+                           void* block, size_t block_sz) noexcept :
+  _user_ptr{user_ptr}, _malloc{malloc_fn}, _free{free_fn},
+  _block{block}, _block_used{0u},
+  _total_used{0u}, _allocated{block_sz} {}
+
+linked_arena::~linked_arena() noexcept { _free_blocks(); }
+
+linked_arena::linked_arena(linked_arena&& other) noexcept :
+  _user_ptr{std::move(other._user_ptr)},
+  _malloc{std::move(other._malloc)},
+  _free{std::move(other._free)},
+  _block{std::move(other._block)},
+  _block_used{std::move(other._block_used)},
+  _total_used{std::move(other._total_used)},
+  _allocated{std::move(other._allocated)} { other._block = nullptr; }
+
+linked_arena& linked_arena::operator=(linked_arena&& other) noexcept {
+  _free_blocks();
+
+  _user_ptr = std::move(other._user_ptr);
+  _malloc = std::move(other._malloc);
+  _free = std::move(other._free);
+  _block = std::move(other._block);
+  _block_used = std::move(other._block_used);
+  _total_used = std::move(other._total_used);
+  _allocated = std::move(other._allocated);
+
+  other._block = nullptr;
+
+  return *this;
+}
+
+expected<linked_arena, std::bad_alloc> linked_arena::from_size(size_t size) noexcept {
+  const size_t block_sz = std::max(next_page_mult(size+sizeof(arena_header)), MIN_BLOCK_SIZE);
+  void* mem = malloc_pool::malloc_fn(nullptr, block_sz, BLOCK_ALIGN);
+  if (!mem) {
+    return unexpected{std::bad_alloc{}};
+  }
+
+  arena_header* block = static_cast<arena_header*>(mem);
+  block->next = nullptr;
+  block->prev = nullptr;
+  block->size = block_sz;
+
+  return expected<linked_arena, std::bad_alloc>{
+    in_place,
+    nullptr, malloc_pool::malloc_fn, malloc_pool::free_fn, static_cast<void*>(block), block_sz
+  };
+}
+expected<linked_arena, std::bad_alloc> linked_arena::from_extern(
+  void* user_ptr, malloc_fn_t malloc_fn, free_fn_t free_fn, size_t size
+) noexcept {
+  if (!malloc_fn || !free_fn) {
+    return unexpected{std::bad_alloc{}};
+  }
+  const size_t block_sz = std::max(next_page_mult(size+sizeof(arena_header)), MIN_BLOCK_SIZE);
+  void* mem;
+  try {
+    mem = std::invoke(malloc_fn, user_ptr, block_sz, BLOCK_ALIGN);
+    if (!mem) {
+      return unexpected{std::bad_alloc{}};
+    }
+  } catch(...) {
+    return unexpected{std::bad_alloc{}};
+  }
+
+  arena_header* block = static_cast<arena_header*>(mem);
+  block->next = nullptr;
+  block->prev = nullptr;
+  block->size = block_sz;
+
+  return expected<linked_arena, std::bad_alloc>{
+    in_place,
+    user_ptr, malloc_pool::malloc_fn, malloc_pool::free_fn, static_cast<void*>(block), block_sz
+  };
+}
+
+bool linked_arena::_try_acquire_block(size_t size, size_t align) noexcept {
+  arena_header* next_block = static_cast<arena_header*>(_block)->next;
+  while (next_block) {
+    void* data_init = ptr_add(next_block, sizeof(arena_header));
+    const size_t padding = align_fw_adjust(ptr_add(data_init, _block_used), align);
+    if (next_block->size >= size+padding) {
+      _block_used = 0u;
+      _block = static_cast<void*>(next_block);
+      return true;
+    }
+    next_block = next_block->next;
+  }
+
+  const size_t block_sz = std::max(next_page_mult(size+sizeof(arena_header)), MIN_BLOCK_SIZE);
+  void* mem;
+  try {
+    mem = std::invoke(_malloc, _user_ptr, block_sz, BLOCK_ALIGN);
+    if (!mem) {
+      return false;
+    }
+  } catch(...) {
+    return false;
+  }
+  arena_header* block = static_cast<arena_header*>(mem);
+  block->next = nullptr;
+  block->prev = static_cast<arena_header*>(_block);
+  block->size = block_sz;
+  _block = static_cast<void*>(block); // Will waste the last few free bytes in the block
+  _block_used = 0u;
+  _allocated += block_sz;
+  return true;
 }
 
 void* linked_arena::allocate(size_t size, size_t alignment) noexcept {
@@ -88,20 +256,13 @@ void* linked_arena::allocate(size_t size, size_t alignment) noexcept {
   size_t required = size+padding;
 
   if (available < required) {
-    if (block->next) {
-      block = block->next;
-    } else if (auto [ptr, block_sz] = try_acquire_block(required, _block); ptr != nullptr) {
-      block = ptr;
-      _allocated += block_sz;
-    } else {
+    if (!_try_acquire_block(size, alignment)) {
       return nullptr;
     }
 
     data_init = ptr_add(block, sizeof(arena_header));
     padding = align_fw_adjust(data_init, alignment);
     required = size+padding;
-    _block_used = 0u;
-    _block = block; // Will waste the last few free bytes in the block
   }
 
   void* ptr = ptr_add(data_init, _block_used+padding);
@@ -110,9 +271,14 @@ void* linked_arena::allocate(size_t size, size_t alignment) noexcept {
   return ptr;
 }
 
+void linked_arena::deallocate(void* mem, size_t size) noexcept {
+  NTF_UNUSED(mem);
+  NTF_UNUSED(size);
+}
+
 void linked_arena::clear() noexcept {
   arena_header* block = static_cast<arena_header*>(_block);
-  while (block->prev != nullptr) {
+  while (block->prev) {
     block = block->prev;
   }
   _block = block;
@@ -120,57 +286,20 @@ void linked_arena::clear() noexcept {
   _block_used = 0u;
 }
 
-linked_arena::~linked_arena() noexcept { free_blocks(_block); }
-
-linked_arena::linked_arena(linked_arena&& other) noexcept :
-  _block{std::move(other._block)},
-  _block_used{std::move(other._block_used)},
-  _total_used{std::move(other._total_used)},
-  _allocated{std::move(other._allocated)} { other._block = nullptr; }
-
-linked_arena& linked_arena::operator=(linked_arena&& other) noexcept {
-  free_blocks(_block);
-
-  _block = std::move(other._block);
-  _block_used = std::move(other._block_used);
-  _total_used = std::move(other._total_used);
-  _allocated = std::move(other._allocated);
-
-  other._block = nullptr;
-
-  return *this;
-}
-
-expected<fixed_arena, error<void>> fixed_arena::from_size(size_t size) noexcept {
-  void* ptr = mmap(nullptr, size, mem_pflag, mem_type, -1, 0);
-  if (!ptr) {
-    return unexpected{error<void>{"Allocation failure"}};
+void linked_arena::_free_blocks() noexcept {
+  if (!_block) {
+    return;
   }
-  return fixed_arena{ptr, size};
-}
-
-fixed_arena::~fixed_arena() noexcept {
-  if (data()) {
-    munmap(data(), capacity());
+  arena_header* block = static_cast<arena_header*>(_block);
+  while (block->next) {
+    block = block->next;
   }
-}
-
-fixed_arena::fixed_arena(fixed_arena&& other) noexcept :
-  arena_block_manager{static_cast<arena_block_manager&&>(other)}
-{
-  other._block = nullptr;
-}
-
-fixed_arena& fixed_arena::operator=(fixed_arena&& other) noexcept {
-  if (data()) {
-    munmap(data(), capacity());
+  while (block) {
+    arena_header* prev = block->prev;
+    const size_t size = block->size;
+    std::invoke(_free, _user_ptr, static_cast<void*>(block), size);
+    block = prev;
   }
-
-  arena_block_manager::operator=(static_cast<arena_block_manager&&>(other));
-
-  other._block = nullptr;
-
-  return *this;
 }
 
 } // namespace ntf
