@@ -70,7 +70,7 @@ TEST_CASE("unique array construction and allocation", "[unique_array]") {
   }
 
   SECTION("Use std::allocator, construct from factory using copy") {
-    auto arr = ntf::unique_array<int>::from_allocator(count, copy);
+    auto arr = ntf::unique_array<int>::from_size(count, copy);
     REQUIRE(!arr.empty());
     REQUIRE(arr.size() == count);
 
@@ -83,7 +83,7 @@ TEST_CASE("unique array construction and allocation", "[unique_array]") {
   }
 
   SECTION("Use std::allocator, construct from factory, uninitialized"){
-    auto arr = ntf::unique_array<int>::from_allocator(ntf::uninitialized, count);
+    auto arr = ntf::unique_array<int>::from_size(ntf::uninitialized, count);
     REQUIRE(!arr.empty());
     REQUIRE(arr.size() == count);
 
@@ -92,7 +92,7 @@ TEST_CASE("unique array construction and allocation", "[unique_array]") {
   }
 
   SECTION("Use std::alllocator, use constructor and copy") {
-    ntf::unique_array<int> arr{count, copy};
+    ntf::unique_array<int> arr(count, copy);
     REQUIRE(!arr.empty());
     REQUIRE(arr.size() == count);
 
@@ -156,7 +156,7 @@ TEST_CASE("unique array construction and allocation", "[unique_array]") {
     int_arena arena;
     int_alloc alloc{arena};
 
-    auto arr = ntf::unique_array<int>::from_allocator(count, copy, alloc);
+    auto arr = ntf::unique_array<int>::from_size(count, copy, alloc);
     REQUIRE(!arr.empty());
     REQUIRE(arr.size() == count);
 
@@ -172,7 +172,7 @@ TEST_CASE("unique array construction and allocation", "[unique_array]") {
     int_arena arena;
     int_alloc alloc{arena};
 
-    auto arr = ntf::unique_array<int>::from_allocator(ntf::uninitialized, count, alloc);
+    auto arr = ntf::unique_array<int>::from_size(ntf::uninitialized, count, alloc);
     REQUIRE(!arr.empty());
     REQUIRE(arr.size() == count);
 
@@ -212,7 +212,7 @@ TEST_CASE("unique array construction and allocation", "[unique_array]") {
 TEST_CASE("unique array move operations" "[unique_array]") {
   const size_t count = 8u;
   SECTION("Use std::allocator") {
-    auto arr = ntf::unique_array<int>::from_allocator(ntf::uninitialized, count);
+    auto arr = ntf::unique_array<int>::from_size(ntf::uninitialized, count);
     REQUIRE(!arr.empty());
     REQUIRE(arr.size() == count);
 
@@ -231,7 +231,7 @@ TEST_CASE("unique array move operations" "[unique_array]") {
     int_arena arena;
     int_alloc alloc{arena};
 
-    auto arr = ntf::unique_array<int>::from_allocator(ntf::uninitialized, count, alloc);
+    auto arr = ntf::unique_array<int>::from_size(ntf::uninitialized, count, alloc);
     REQUIRE(!arr.empty());
     REQUIRE(arr.size() == count);
 
@@ -251,11 +251,11 @@ TEST_CASE("unique array reset", "[unique_array]") {
   const size_t count1 = 8u;
   const size_t count2 = 4u;;
   {
-    auto arr1 = ntf::unique_array<int>::from_allocator(ntf::uninitialized, count1);
+    auto arr1 = ntf::unique_array<int>::from_size(ntf::uninitialized, count1);
     REQUIRE(!arr1.empty());
     REQUIRE(arr1.size() == count1);
 
-    auto arr2 = ntf::unique_array<int>::from_allocator(ntf::uninitialized, count2);
+    auto arr2 = ntf::unique_array<int>::from_size(ntf::uninitialized, count2);
     REQUIRE(!arr2.empty());
     REQUIRE(arr2.size() == count2);
 
@@ -321,7 +321,7 @@ TEST_CASE("virtual allocator in unique_array", "[unique_array]") {
   const size_t count = 10u;
   SECTION("Simulate construction and move") {
     test_pool pool;
-    auto arr = ntf::unique_array<int>::from_allocator(count, copy, test_pool::make_alloc<int>());
+    auto arr = ntf::unique_array<int>::from_size(count, copy, test_pool::make_alloc<int>());
     for (const auto& value : arr){
       REQUIRE(value == copy);
     }

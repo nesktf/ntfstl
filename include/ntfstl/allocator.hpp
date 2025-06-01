@@ -14,6 +14,12 @@ concept allocator_type = requires(Alloc& alloc, std::add_pointer_t<T> ptr, size_
   requires std::same_as<typename Alloc::value_type, T>;
 };
 
+template<typename Deleter, typename T>
+concept array_deleter_type = requires(Deleter& del, T* arr, size_t n) {
+  requires noexcept(del(arr, n));
+  { del(arr, n) } -> std::same_as<void>;
+} || std::same_as<Deleter, std::default_delete<T[]>>;
+
 // Avoid using std::allocator_traits for templates with non-type arguments
 template<typename Alloc, typename T>
 struct rebind_alloc;
@@ -53,6 +59,10 @@ template<typename T, typename Alloc>
 struct alloc_del_dealloc : private Alloc {
   alloc_del_dealloc() :
     Alloc{} {}
+
+  template<typename U>
+  alloc_del_dealloc(std::in_place_type_t<U>, const meta::rebind_alloc_t<Alloc, U>& other) :
+    Alloc{other} {}
 
   alloc_del_dealloc(const Alloc& alloc) :
     Alloc{alloc} {}
@@ -103,7 +113,7 @@ public:
   requires(!std::same_as<T, U>)
   allocator_delete(const rebind<U>& other)
   noexcept(std::is_nothrow_copy_constructible_v<Alloc>) :
-    deall_base{other.get_allocator()} {}
+    deall_base{std::in_place_type_t<U>{}, other.get_allocator()} {}
 
 public:
   template<typename U = T>

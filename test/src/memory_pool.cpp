@@ -5,7 +5,7 @@ using namespace ntf::numdefs;
 
 namespace {
 
-struct some_allocator {
+struct some_mempool {
   size_t allocated = 0u;
 
   void* allocate(size_t size, size_t align) {
@@ -38,15 +38,15 @@ TEST_CASE("fixed arena common usage", "[memory_pool]") {
     REQUIRE(arena->size() == 0u);
   }
   SECTION("Using custom allocator") {
-    some_allocator alloc;
+    some_mempool pool;
     {
-      auto arena = ntf::fixed_arena::from_extern(ntf::make_pool_funcs(alloc), ntf::mibs(4u));
+      auto arena = ntf::fixed_arena::from_extern(ntf::make_pool_funcs(pool), ntf::mibs(4u));
       REQUIRE(arena.has_value());
       REQUIRE(arena->capacity() >= ntf::mibs(4u));
       REQUIRE(arena->size() == 0u);
 
       arena->allocate_uninited<uint32>(20);
-      REQUIRE(alloc.allocated >= ntf::mibs(4u));
+      REQUIRE(pool.allocated >= ntf::mibs(4u));
       REQUIRE(arena->size() != 0u);
       arena->clear();
       REQUIRE(arena->size() == 0u);
@@ -55,7 +55,7 @@ TEST_CASE("fixed arena common usage", "[memory_pool]") {
       REQUIRE(ptr == nullptr);
       REQUIRE(arena->size() == 0u);
     }
-    REQUIRE(alloc.allocated == 0u);
+    REQUIRE(pool.allocated == 0u);
   }
 }
 
@@ -80,12 +80,12 @@ TEST_CASE("linked arena common usage", "[memory_pool]") {
   }
 
   SECTION("Using custom allocator") {
-    some_allocator alloc;
+    some_mempool pool;
     {
-      auto arena = ntf::linked_arena::from_extern(ntf::make_pool_funcs(alloc), ntf::mibs(4u));
+      auto arena = ntf::linked_arena::from_extern(ntf::make_pool_funcs(pool), ntf::mibs(4u));
       REQUIRE(arena.has_value());
       REQUIRE(arena->capacity() >= ntf::mibs(4u));
-      REQUIRE(alloc.allocated >= ntf::mibs(4u));
+      REQUIRE(pool.allocated >= ntf::mibs(4u));
       REQUIRE(arena->size() == 0u);
 
       arena->allocate_uninited<uint32>(20);
@@ -100,6 +100,6 @@ TEST_CASE("linked arena common usage", "[memory_pool]") {
       arena->clear();
       REQUIRE(arena->size() == 0u);
     }
-    REQUIRE(alloc.allocated == 0u);
+    REQUIRE(pool.allocated == 0u);
   }
 }

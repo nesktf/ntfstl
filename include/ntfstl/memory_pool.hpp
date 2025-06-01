@@ -316,8 +316,8 @@ static_assert(meta::allocator_pool_type<linked_arena>);
 
 // Arena in the stack
 template<size_t buffer_sz, size_t max_align = alignof(uint8)>
-requires(buffer_sz > 0u)
-class stack_arena {
+requires(buffer_sz > 0u && max_align > 0u)
+class stack_arena : public impl::mempool_ops<stack_arena<buffer_sz, max_align>> {
 public:
   template<typename T>
   using adaptor_type = allocator_adaptor<T, stack_arena>;

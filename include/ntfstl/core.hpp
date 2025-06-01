@@ -12,6 +12,14 @@
 
 #define NTF_UNUSED(expr) (void)(true ? NTF_NOOP : ((void)(expr)))
 
+#define NTF_DO_PRAGMA(X) _Pragma(#X)
+#define NTF_DISABLE_WARN_PUSH \
+  NTF_DO_PRAGMA(GCC diagnostic push)
+#define NTF_DISABLE_WARN(_warn) \
+  NTF_DO_PRAGMA(GCC diagnostic ignored #_warn)
+#define NTF_DISABLE_WARN_POP \
+  NTF_DO_PRAGMA(GCC diagnostic pop)
+
 #define NTF_APPLY_VA_ARGS(M, ...) NTF_APPLY_VA_ARGS_(M, (__VA_ARGS__))
 #define NTF_APPLY_VA_ARGS_(M, args) M args
 
