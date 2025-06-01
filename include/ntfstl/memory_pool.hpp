@@ -161,6 +161,21 @@ struct malloc_funcs {
   free_fn_t mem_free;
 };
 
+template<meta::allocator_pool_type P>
+malloc_funcs make_pool_funcs(P& pool) noexcept {
+  return {
+    .user_ptr = std::addressof(pool),
+    .mem_alloc = +[](void* user_ptr, size_t size, size_t align) -> void* {
+      auto& mem_pool = *std::launder(reinterpret_cast<P*>(user_ptr));
+      return mem_pool.allocate(size, align);
+    },
+    .mem_free = +[](void* user_ptr, void* mem, size_t size) -> void {
+      auto& mem_pool = *std::launder(reinterpret_cast<P*>(user_ptr));
+      mem_pool.deallocate(mem, size);
+    },
+  };
+}
+
 // Thin wrapper for a memory pool, meant to be used in virtual_allocator or similar
 template<meta::allocator_pool_type MemPoolT>
 class mempool_view : public impl::mempool_ops<mempool_view<MemPoolT>> {
@@ -220,9 +235,7 @@ public:
 
 public:
   static expected<fixed_arena, std::bad_alloc> from_size(size_t size) noexcept;
-  static expected<fixed_arena, std::bad_alloc> from_extern(
-    void* user_ptr, malloc_fn_t malloc_fn, free_fn_t free_fn, size_t size
-  ) noexcept;
+  static expected<fixed_arena, std::bad_alloc> from_extern(malloc_funcs func, size_t sz) noexcept;
 
 public:
   void* allocate(size_t size, size_t align);
@@ -266,9 +279,7 @@ public:
 
 public:
   static expected<linked_arena, std::bad_alloc> from_size(size_t size) noexcept;
-  static expected<linked_arena, std::bad_alloc> from_extern(
-    void* user_ptr, malloc_fn_t malloc_fn, free_fn_t free_fn, size_t size
-  ) noexcept;
+  static expected<linked_arena, std::bad_alloc> from_extern(malloc_funcs func, size_t sz) noexcept;
 
 public:
   void* allocate(size_t size, size_t alignment) noexcept;

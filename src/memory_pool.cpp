@@ -21,7 +21,7 @@ struct arena_header {
   size_t size;
 };
 static constexpr size_t MIN_BLOCK_SIZE = kibs(4);
-static constexpr size_t BLOCK_ALIGN = alignof(std::max_align_t);
+static constexpr size_t BLOCK_ALIGN = alignof(arena_header);
 
 } // namespace
 
@@ -84,16 +84,15 @@ expected<fixed_arena, std::bad_alloc> fixed_arena::from_size(size_t size) noexce
   };
 }
 
-expected<fixed_arena, std::bad_alloc> fixed_arena::from_extern(
-  void* user_ptr, malloc_fn_t malloc_fn, free_fn_t free_fn, size_t size
-) noexcept {
-  if (!malloc_fn || !free_fn) {
+expected<fixed_arena, std::bad_alloc> fixed_arena::from_extern(malloc_funcs func,
+                                                               size_t size) noexcept {
+  if (!func.mem_alloc || !func.mem_free) {
     return unexpected{std::bad_alloc{}};
   }
   const size_t block_sz = std::max(next_page_mult(size), MIN_BLOCK_SIZE);
   void* block;
   try {
-    block = std::invoke(malloc_fn, user_ptr, block_sz, BLOCK_ALIGN);
+    block = std::invoke(func.mem_alloc, func.user_ptr, block_sz, BLOCK_ALIGN);
     if (!block) {
       return unexpected{std::bad_alloc{}};
     }
@@ -102,8 +101,7 @@ expected<fixed_arena, std::bad_alloc> fixed_arena::from_extern(
   }
 
   return expected<fixed_arena, std::bad_alloc>{
-    in_place,
-    user_ptr, free_fn, block, block_sz
+    in_place, func.user_ptr, func.mem_free, block, block_sz
   };
 }
 
@@ -186,16 +184,15 @@ expected<linked_arena, std::bad_alloc> linked_arena::from_size(size_t size) noex
     nullptr, malloc_pool::malloc_fn, malloc_pool::free_fn, static_cast<void*>(block), block_sz
   };
 }
-expected<linked_arena, std::bad_alloc> linked_arena::from_extern(
-  void* user_ptr, malloc_fn_t malloc_fn, free_fn_t free_fn, size_t size
-) noexcept {
-  if (!malloc_fn || !free_fn) {
+expected<linked_arena, std::bad_alloc> linked_arena::from_extern(malloc_funcs funcs,
+                                                                 size_t size) noexcept {
+  if (!funcs.mem_alloc || !funcs.mem_free) {
     return unexpected{std::bad_alloc{}};
   }
   const size_t block_sz = std::max(next_page_mult(size+sizeof(arena_header)), MIN_BLOCK_SIZE);
   void* mem;
   try {
-    mem = std::invoke(malloc_fn, user_ptr, block_sz, BLOCK_ALIGN);
+    mem = std::invoke(funcs.mem_alloc, funcs.user_ptr, block_sz, BLOCK_ALIGN);
     if (!mem) {
       return unexpected{std::bad_alloc{}};
     }
@@ -209,8 +206,7 @@ expected<linked_arena, std::bad_alloc> linked_arena::from_extern(
   block->size = block_sz;
 
   return expected<linked_arena, std::bad_alloc>{
-    in_place,
-    user_ptr, malloc_pool::malloc_fn, malloc_pool::free_fn, static_cast<void*>(block), block_sz
+    in_place, funcs.user_ptr, funcs.mem_alloc, funcs.mem_free, static_cast<void*>(block), block_sz
   };
 }
 
@@ -241,6 +237,7 @@ bool linked_arena::_try_acquire_block(size_t size, size_t align) noexcept {
   block->next = nullptr;
   block->prev = static_cast<arena_header*>(_block);
   block->size = block_sz;
+  block->prev->next = block;
   _block = static_cast<void*>(block); // Will waste the last few free bytes in the block
   _block_used = 0u;
   _allocated += block_sz;
@@ -260,7 +257,7 @@ void* linked_arena::allocate(size_t size, size_t alignment) noexcept {
       return nullptr;
     }
 
-    data_init = ptr_add(block, sizeof(arena_header));
+    data_init = ptr_add(_block, sizeof(arena_header));
     padding = align_fw_adjust(data_init, alignment);
     required = size+padding;
   }
