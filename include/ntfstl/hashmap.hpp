@@ -109,8 +109,9 @@ public:
 
   void _destroy(std::pair<const K, T>* values, size_t value_count,
                 fhashmap_flag* flags, size_t flag_count) {
-    value_base_t::operator()(values, value_count);
-    flag_base_t::operator()(flags, flag_count);
+    // The hashmap is in charge of destroying the elements
+    value_base_t::operator()(uninitialized, values, value_count);
+    flag_base_t::operator()(uninitialized, flags, flag_count);
   }
 
   Del& _get_deleter() { return static_cast<Del&>(*this); }
@@ -123,7 +124,7 @@ template<
   typename K, typename T,
   typename HashT = std::hash<K>,
   typename EqualsT = std::equal_to<K>,
-  meta::array_deleter_type<std::pair<const K, T>> DelT = default_alloc_del<std::pair<const K, T>>
+  meta::array_deleter_type<std::pair<const K, T>> DelT = default_delete<std::pair<const K, T>>
 >
 class fixed_hashmap :
   private impl::fixed_hashmap_del<K, T, DelT>,

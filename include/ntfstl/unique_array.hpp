@@ -48,7 +48,7 @@ struct unique_array_del<T, std::default_delete<T[]>> : private std::default_dele
 
 } // namespace impl
 
-template<typename T, meta::array_deleter_type<T> DelT = default_alloc_del<T>>
+template<typename T, meta::array_deleter_type<T> DelT = default_delete<T>>
 requires(!std::is_reference_v<T>)
 class unique_array : private impl::unique_array_del<T, DelT> {
 public:
@@ -339,12 +339,12 @@ public:
 
   value_type& at(size_type idx) noexcept(NTF_NOEXCEPT) {
     NTF_THROW_IF(empty() || idx >= size(), std::out_of_range, "Key not found");
-    return get()+idx;
+    return _arr[idx];
   }
 
   const value_type& at(size_type idx) const noexcept(NTF_NOEXCEPT) {
     NTF_THROW_IF(empty() || idx >= size(), std::out_of_range, "Key not found");
-    return get()+idx;
+    return _arr[idx];
   }
 
 public:
