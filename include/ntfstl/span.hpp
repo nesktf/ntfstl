@@ -27,8 +27,7 @@ public:
   using difference_type = ptrdiff_t;
 
 public:
-  constexpr span() noexcept :
-    _data{nullptr}, _size{0u} {}
+  constexpr span() noexcept = default;
 
   constexpr explicit span(reference obj) noexcept :
     _data{std::addressof(obj)}, _size{1u} {}

@@ -16,8 +16,7 @@ public:
   using const_reference = const T&;
 
 public:
-  constexpr weak_ptr() noexcept :
-    _ptr{nullptr} {}
+  constexpr weak_ptr() noexcept = default;
 
   constexpr weak_ptr(std::nullptr_t) noexcept :
     _ptr{nullptr} {}
