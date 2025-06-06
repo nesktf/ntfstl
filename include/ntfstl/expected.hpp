@@ -785,22 +785,22 @@ public:
 
   constexpr const E& error() const& noexcept(NTF_ASSERT_NOEXCEPT)
   {
-    NTF_ASSERT(*this, "No error in expected");
+    NTF_ASSERT(!*this, "No error in expected");
     return _storage.get_error().value();
   }
   constexpr E& error() & noexcept(NTF_ASSERT_NOEXCEPT)
   {
-    NTF_ASSERT(*this, "No error in expected");
+    NTF_ASSERT(!*this, "No error in expected");
     return _storage.get_error().value();
   }
   constexpr const E&& error() const&& noexcept(NTF_ASSERT_NOEXCEPT)
   {
-    NTF_ASSERT(*this, "No error in expected");
+    NTF_ASSERT(!*this, "No error in expected");
     return std::move(_storage.get_error().value());
   }
   constexpr E&& error() && noexcept(NTF_ASSERT_NOEXCEPT)
   {
-    NTF_ASSERT(*this, "No error in expected");
+    NTF_ASSERT(!*this, "No error in expected");
     return std::move(_storage.get_error().value());
   }
 
@@ -1137,22 +1137,22 @@ public:
 
   constexpr const E& error() const& noexcept(NTF_ASSERT_NOEXCEPT)
   {
-    NTF_ASSERT(*this, "No error in expected");
+    NTF_ASSERT(!*this, "No error in expected");
     return _storage.get_error().value();
   }
   constexpr E& error() & noexcept(NTF_ASSERT_NOEXCEPT)
   {
-    NTF_ASSERT(*this, "No error in expected");
+    NTF_ASSERT(!*this, "No error in expected");
     return _storage.get_error().value();
   }
   constexpr const E&& error() const&& noexcept(NTF_ASSERT_NOEXCEPT)
   {
-    NTF_ASSERT(*this, "No error in expected");
+    NTF_ASSERT(!*this, "No error in expected");
     return std::move(_storage.get_error().value());
   }
   constexpr E&& error() && noexcept(NTF_ASSERT_NOEXCEPT)
   {
-    NTF_ASSERT(*this, "No error in expected");
+    NTF_ASSERT(!*this, "No error in expected");
     return std::move(_storage.get_error().value());
   }
 
