@@ -34,6 +34,8 @@ void malloc_pool::deallocate(void* mem, size_t size) const noexcept {
   std::free(mem);
 }
 
+bool malloc_pool::is_equal(const malloc_pool&) const noexcept { return true; }
+
 void* malloc_pool::malloc_fn(void* user_ptr, size_t size, size_t align) noexcept {
   NTF_UNUSED(user_ptr);
   return std::aligned_alloc(align, size);
@@ -119,9 +121,13 @@ void* fixed_arena::allocate(size_t size, size_t align) {
   return ptr;
 }
 
-void fixed_arena::deallocate(void* mem, size_t size) {
+void fixed_arena::deallocate(void* mem, size_t size) noexcept {
   NTF_UNUSED(mem);
   NTF_UNUSED(size);
+}
+
+bool fixed_arena::is_equal(const fixed_arena& other) const noexcept {
+  return (this == &other);
 }
 
 void fixed_arena::clear() noexcept {
@@ -271,6 +277,10 @@ void* linked_arena::allocate(size_t size, size_t alignment) noexcept {
 void linked_arena::deallocate(void* mem, size_t size) noexcept {
   NTF_UNUSED(mem);
   NTF_UNUSED(size);
+}
+
+bool linked_arena::is_equal(const linked_arena& other) const noexcept {
+  return (this == &other);
 }
 
 void linked_arena::clear() noexcept {

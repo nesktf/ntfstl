@@ -292,8 +292,8 @@ struct test_pool : public ntf::malloc_pool {
   }
   
   template<typename T>
-  static ntf::virtual_allocator<T> make_alloc() {
-    return ntf::virtual_allocator<T>{std::in_place_type_t<test_pool>{}};
+  static ntf::virtual_inplace_alloc<T> make_alloc() {
+    return ntf::virtual_inplace_alloc<T>{std::in_place_type_t<test_pool>{}};
   }
 
   ~test_pool() { --alive_count; }
@@ -301,7 +301,7 @@ struct test_pool : public ntf::malloc_pool {
 
 class random_container {
 private:
-  using array_t = ntf::unique_array<int, ntf::allocator_delete<int, ntf::virtual_allocator<int>>>;
+  using array_t = ntf::unique_array<int, ntf::allocator_delete<int, ntf::virtual_inplace_alloc<int>>>;
 
 public:
   random_container(array_t&& arr) :

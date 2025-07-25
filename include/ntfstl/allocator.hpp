@@ -152,15 +152,15 @@ template<
   move_policy policy = move_policy::copyable,
   size_t max_align = alignof(malloc_funcs)
 >
-class virtual_allocator
+class virtual_inplace_alloc
   : public impl::inplace_nontrivial<
-    virtual_allocator<T, buff_sz, policy, max_align>,
+    virtual_inplace_alloc<T, buff_sz, policy, max_align>,
     buff_sz, policy, max_align
   >
 {
 private:
   using base_t = impl::inplace_nontrivial<
-    virtual_allocator<T, buff_sz, policy, max_align>,
+    virtual_inplace_alloc<T, buff_sz, policy, max_align>,
     buff_sz, policy, max_align
   >;
   friend base_t;
@@ -172,10 +172,10 @@ public:
   using difference_type = ptrdiff_t;
 
   template<typename U>
-  using rebind = virtual_allocator<U, buff_sz, policy, max_align>;
+  using rebind = virtual_inplace_alloc<U, buff_sz, policy, max_align>;
 
   template<meta::allocable_type U, size_t, move_policy, size_t>
-  friend class virtual_allocator;
+  friend class virtual_inplace_alloc;
 
 private:
   template<typename U>
@@ -196,7 +196,7 @@ private:
 
 public:
   template<typename U, typename... Args>
-  virtual_allocator(std::in_place_type_t<U> tag, Args&&... args)
+  virtual_inplace_alloc(std::in_place_type_t<U> tag, Args&&... args)
   noexcept(std::is_nothrow_constructible_v<std::decay_t<U>, Args...>)
   requires(_valid_pool<U> && base_t::template _can_store_type<U>) :
     base_t{tag},
@@ -207,7 +207,7 @@ public:
   }
 
   template<typename U, typename V, typename... Args>
-  virtual_allocator(std::in_place_type_t<U> tag, std::initializer_list<V> il, Args&&... args)
+  virtual_inplace_alloc(std::in_place_type_t<U> tag, std::initializer_list<V> il, Args&&... args)
   noexcept(std::is_nothrow_constructible_v<std::decay_t<U>, std::initializer_list<V>, Args...>)
   requires(_valid_pool<U> && base_t::template _can_store_type<U>) :
     base_t{tag},
@@ -218,7 +218,7 @@ public:
   }
 
   template<typename U>
-  virtual_allocator(U&& obj)
+  virtual_inplace_alloc(U&& obj)
   noexcept(meta::is_nothrow_forward_constructible<U>)
   requires(_valid_pool<U> && base_t::template _can_store_type<U> &&
            base_t::template _can_forward_type<U>) :
@@ -230,7 +230,7 @@ public:
   }
 
   template<typename U>
-  virtual_allocator(const rebind<U>& other)
+  virtual_inplace_alloc(const rebind<U>& other)
   requires(!std::same_as<T, std::decay_t<U>> && base_t::_can_copy) :
     base_t{other._type_id},
     _dispatcher{other._dispatcher},
@@ -240,7 +240,7 @@ public:
   }
 
   template<typename U>
-  virtual_allocator(rebind<U>&& other)
+  virtual_inplace_alloc(rebind<U>&& other)
   requires(!std::same_as<T, std::decay_t<U>> && base_t::_can_move) :
     base_t{other._type_id},
     _dispatcher{other._dispatcher},
@@ -249,7 +249,7 @@ public:
     base_t::_move_from(other._storage);
   }
 
-  virtual_allocator(const virtual_allocator& other)
+  virtual_inplace_alloc(const virtual_inplace_alloc& other)
   requires(base_t::_can_copy) :
     base_t{other._type_id},
     _dispatcher{other._dispatcher},
@@ -258,7 +258,7 @@ public:
     base_t::_copy_from(other._storage);
   }
 
-  virtual_allocator(virtual_allocator&& other)
+  virtual_inplace_alloc(virtual_inplace_alloc&& other)
   requires(base_t::_can_move) :
     base_t{other._type_id},
     _dispatcher{other._dispatcher},
@@ -267,7 +267,7 @@ public:
     base_t::_move_from(other._storage);
   }
 
-  ~virtual_allocator() noexcept { base_t::_destroy(); }
+  ~virtual_inplace_alloc() noexcept { base_t::_destroy(); }
 
 public:
   template<typename U, typename... Args>
@@ -301,7 +301,7 @@ public:
   }
 
   template<typename U>
-  virtual_allocator& operator=(U&& obj)
+  virtual_inplace_alloc& operator=(U&& obj)
   noexcept(meta::is_nothrow_forward_constructible<U>)
   requires(_valid_pool<U> && base_t::template _can_store_type<U>)
   {
@@ -316,7 +316,7 @@ public:
     return *this;
   }
 
-  virtual_allocator& operator=(const virtual_allocator& other)
+  virtual_inplace_alloc& operator=(const virtual_inplace_alloc& other)
   requires(base_t::_can_copy)
   {
     if (std::addressof(other) == this) {
@@ -333,7 +333,7 @@ public:
     return *this;
   }
 
-  virtual_allocator& operator=(virtual_allocator&& other)
+  virtual_inplace_alloc& operator=(virtual_inplace_alloc&& other)
   requires(base_t::_can_move)
   {
     if (std::addressof(other) == this) {
@@ -351,7 +351,7 @@ public:
   }
 
   template<typename U>
-  virtual_allocator& operator=(const rebind<U>& other)
+  virtual_inplace_alloc& operator=(const rebind<U>& other)
   requires(!std::same_as<T, std::decay_t<U>> && base_t::_can_copy)
   {
     base_t::_destroy();
@@ -366,7 +366,7 @@ public:
   }
 
   template<typename U>
-  virtual_allocator& operator=(rebind<U>&& other)
+  virtual_inplace_alloc& operator=(rebind<U>&& other)
   requires(!std::same_as<T, std::decay_t<U>> && base_t::_can_move)
   {
     base_t::_destroy();
@@ -426,7 +426,7 @@ private:
   }
 
   template<typename U>
-  void _set_meta(const virtual_allocator<U, buff_sz, policy, max_align>& other) noexcept {
+  void _set_meta(const virtual_inplace_alloc<U, buff_sz, policy, max_align>& other) noexcept {
     _alloc_call = other._alloc_call;
     _dispatcher = other._dispatcher;
     this->_type_id = other._type_id;
@@ -441,6 +441,234 @@ private:
 private:
   base_t::call_dispatcher_t _dispatcher;
   allocator_call_t _alloc_call;
+};
+
+// Thin wrapper for using memory pools in standard containers directly
+template<meta::allocable_type T, meta::allocator_pool_type MemPool>
+class allocator_adaptor : public impl::mempool_ops<allocator_adaptor<T, MemPool>> {
+public:
+  using value_type = T;
+  using pointer = T*;
+  using size_type = size_t;
+  using difference_Type = ptrdiff_t;
+
+  template<typename U>
+  using rebind = allocator_adaptor<U, MemPool>;
+
+private:
+  template<meta::allocable_type U, meta::allocator_pool_type MemPoolU>
+  friend class allocator_adaptor;
+
+public:
+  constexpr allocator_adaptor(MemPool& pool) noexcept :
+    _pool{std::addressof(pool)} {}
+
+  constexpr allocator_adaptor(const allocator_adaptor& other) noexcept :
+    _pool{other._pool} {}
+
+  template<typename U>
+  requires(!std::same_as<T, U>)
+  constexpr allocator_adaptor(const rebind<U>& other) noexcept :
+    _pool{other._pool} {}
+
+public:
+  constexpr pointer allocate(size_type n) {
+    void* ptr = _pool->allocate(n*sizeof(value_type), alignof(value_type));
+    NTF_THROW_IF(!ptr, std::bad_alloc);
+    return reinterpret_cast<pointer>(ptr);
+  }
+
+  constexpr void deallocate(pointer ptr, size_type n) {
+    _pool->deallocate(ptr, n*sizeof(value_type));
+  }
+
+public:
+  constexpr bool operator==(const allocator_adaptor& other) const noexcept {
+    if constexpr (meta::has_operator_equals<MemPool>) {
+      return get_pool() == other.get_pool();
+    } else {
+      return _pool == other._pool;
+    }
+  }
+
+  template<typename U>
+  requires(!std::same_as<T, U>)
+  constexpr bool operator==(const rebind<U>& other) const noexcept {
+    if constexpr (meta::has_operator_equals<MemPool>) {
+      return get_pool() == other.get_pool();
+    } else {
+      return _pool == other._pool;
+    }
+  }
+
+  constexpr bool operator!=(const allocator_adaptor& other) const noexcept {
+    if constexpr (meta::has_operator_nequals<MemPool>) {
+      return get_pool() != other.get_pool();
+    } else {
+      return _pool != other._pool;
+    }
+  }
+
+  template<typename U>
+  requires(!std::same_as<T, U>)
+  constexpr bool operator!=(const rebind<U>& other) const noexcept {
+    if constexpr (meta::has_operator_nequals<MemPool>) {
+      return get_pool() != other.get_pool();
+    } else {
+      return _pool != other._pool;
+    }
+  }
+
+public:
+  const MemPool& get_pool() const { return *_pool; }
+  MemPool& get_pool() { return *_pool; }
+
+private:
+  MemPool* _pool;
+};
+
+template<meta::allocable_type T = std::byte>
+class virtual_allocator {
+private:
+  using PFN_alloc = void*(*)(void* user, void* mem, size_t size, size_t align);
+  using PFN_equal = bool(*)(void* a, const void* other);
+
+  template<typename U>
+  static void* _alloc_for(void* user, void* mem, size_t size, size_t align) {
+    U& pool = *std::launder(reinterpret_cast<std::decay_t<U*>>(user));
+    if (mem) {
+      pool.deallocate(mem, size);
+      return nullptr;
+    } else {
+      return pool.allocate(size, align);
+    }
+  }
+
+  template<typename U>
+  static bool _equals_for(void* a, const void* b) {
+    U& pool_a = *std::launder(reinterpret_cast<std::decay_t<U*>>(a));
+    const U& pool_b = *std::launder(reinterpret_cast<std::decay_t<const U*>>(b));
+    return pool_a.is_equal(b);
+  }
+
+  static void* _malloc_alloc(void* user, void* mem, size_t size, size_t align) noexcept {
+    if (mem) {
+      malloc_pool::free_fn(user, mem, size);
+      return nullptr;
+    } else {
+      return malloc_pool::malloc_fn(user, size, align);
+    }
+  }
+
+  static bool _malloc_equals(void*, const void*) noexcept {
+    return true;
+  }
+
+public:
+  using value_type = T;
+  using pointer = T*;
+  using size_type = size_t;
+  using difference_type = ptrdiff_t;
+
+  template<typename U>
+  using rebind = virtual_allocator<U>;
+
+  template<meta::allocable_type U>
+  friend class virtual_allocator;
+
+public:
+  virtual_allocator() noexcept :
+    _pool{nullptr}, _alloc{&_malloc_alloc}, _equals{&_malloc_equals} {}
+
+  template<meta::allocator_pool_type U>
+  virtual_allocator(U& pool) noexcept :
+    _pool{std::addressof(pool)}, _alloc{&_alloc_for<U>}, _equals{&_equals_for<U>} {}
+
+  template<meta::allocator_pool_type U>
+  virtual_allocator(U* pool) noexcept :
+    _pool{pool}, _alloc{&_alloc_for<U>}, _equals{&_equals_for<U>} {}
+
+  virtual_allocator(const virtual_allocator& other) noexcept = default;
+
+  template<typename U>
+  requires(!std::same_as<T, std::decay_t<U>>)
+  virtual_allocator(const rebind<U>& other) noexcept :
+    _pool{other._pool}, _alloc{other._alloc}, _equals{other._equals} {}
+
+public:
+  T* allocate(size_type n) {
+    T* ptr = std::invoke(_alloc, _pool, nullptr, n*sizeof(T), alignof(T));
+    NTF_THROW_IF(!ptr, std::bad_alloc);
+    return ptr;
+  }
+
+  void deallocate(T* ptr, size_type n) noexcept {
+    std::invoke(_alloc, _pool, ptr, n*sizeof(T), alignof(T));
+  }
+
+public:
+  template<meta::allocator_pool_type U>
+  virtual_allocator& operator=(U& pool) noexcept {
+    _pool = std::addressof(pool);
+    _alloc = &_alloc_for<U>;
+    _equals = &_equals_for<U>;
+    return *this;
+  }
+
+  template<meta::allocator_pool_type U>
+  virtual_allocator& operator=(U* pool) noexcept {
+    _pool = std::addressof(pool);
+    _alloc = &_alloc_for<U>;
+    _equals = &_equals_for<U>;
+    return *this;
+  }
+
+  virtual_allocator& operator=(const virtual_allocator& other) noexcept = default;
+
+  template<typename U>
+  requires(!std::same_as<T, U>)
+  virtual_allocator& operator=(const virtual_allocator<U>& other) noexcept {
+    _pool = other._pool;
+    _alloc = other._alloc;
+    _equals = other._equals;
+    return *this;
+  }
+
+  bool operator==(const virtual_allocator& other) const noexcept {
+    if (_equals == other._equals) {
+      return std::invoke(_equals, _pool, other._pool);
+    } else {
+      return false;
+    }
+  };
+
+  bool operator!=(const virtual_allocator& other) const noexcept {
+    return !(*this == other);
+  }
+
+  template<typename U>
+  requires(!std::same_as<T, std::decay_t<U>>)
+  bool operator==(const rebind<U>& other) const noexcept {
+    if (_equals == other._equals) {
+      return std::invoke(_equals, _pool, other._pool);
+    } else {
+      return false;
+    }
+  };
+
+  template<typename U>
+  requires(!std::same_as<T, std::decay_t<U>>)
+  bool operator!=(const rebind<U>& other) const noexcept {
+    return !(*this == other);
+  }
+
+public:
+  void* get_pool_ptr() const { return _pool; }
+
+private:
+  void* _pool;
+  PFN_alloc _alloc;
+  PFN_equal _equals;
 };
 
 } // namespace ntf

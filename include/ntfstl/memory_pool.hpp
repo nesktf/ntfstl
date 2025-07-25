@@ -10,9 +10,12 @@ template<typename T>
 concept allocable_type = !std::is_void_v<T> && !std::is_reference_v<T> && is_complete<T>;
 
 template<typename T >
-concept allocator_pool_type = requires(T& pool, size_t sz, size_t align, void* ptr) {
-  { pool.allocate(sz, align) } -> std::same_as<void*>;
-  { pool.deallocate(ptr, sz) } -> std::same_as<void>;
+concept allocator_pool_type = requires(T& a, size_t sz, size_t align, void* ptr, const T& b) {
+  { a.allocate(sz, align) } -> std::same_as<void*>;
+  { a.deallocate(ptr, sz) } -> std::same_as<void>;
+  { b.is_equal(b) } -> std::convertible_to<bool>;
+  requires noexcept(b.is_equal(b));
+  requires noexcept(a.deallocate(ptr, sz));
 };
 
 } // namespace meta
@@ -67,90 +70,6 @@ constexpr void* ptr_add(void* p, uintptr_t sz) noexcept {
   return std::bit_cast<void*>(std::bit_cast<uintptr_t>(p)+sz);
 }
 
-// Thin wrapper for using memory pools in standard containers directly
-template<meta::allocable_type T, meta::allocator_pool_type MemPool>
-class allocator_adaptor : public impl::mempool_ops<allocator_adaptor<T, MemPool>> {
-public:
-  using value_type = T;
-  using pointer = T*;
-  using size_type = size_t;
-  using difference_Type = ptrdiff_t;
-
-  template<typename U>
-  using rebind = allocator_adaptor<U, MemPool>;
-
-private:
-  template<meta::allocable_type U, meta::allocator_pool_type MemPoolU>
-  friend class allocator_adaptor;
-
-public:
-  constexpr allocator_adaptor(MemPool& pool) noexcept :
-    _pool{std::addressof(pool)} {}
-
-  constexpr allocator_adaptor(const allocator_adaptor& other) noexcept :
-    _pool{other._pool} {}
-
-  template<typename U>
-  requires(!std::same_as<T, U>)
-  constexpr allocator_adaptor(const rebind<U>& other) noexcept :
-    _pool{other._pool} {}
-
-public:
-  constexpr pointer allocate(size_type n) {
-    void* ptr = _pool->allocate(n*sizeof(value_type), alignof(value_type));
-    NTF_THROW_IF(!ptr, std::bad_alloc);
-    return reinterpret_cast<pointer>(ptr);
-  }
-
-  constexpr void deallocate(pointer ptr, size_type n) {
-    _pool->deallocate(ptr, n*sizeof(value_type));
-  }
-
-public:
-  constexpr bool operator==(const allocator_adaptor& other) const noexcept {
-    if constexpr (meta::has_operator_equals<MemPool>) {
-      return get_pool() == other.get_pool();
-    } else {
-      return _pool == other._pool;
-    }
-  }
-
-  template<typename U>
-  requires(!std::same_as<T, U>)
-  constexpr bool operator==(const rebind<U>& other) const noexcept {
-    if constexpr (meta::has_operator_equals<MemPool>) {
-      return get_pool() == other.get_pool();
-    } else {
-      return _pool == other._pool;
-    }
-  }
-
-  constexpr bool operator!=(const allocator_adaptor& other) const noexcept {
-    if constexpr (meta::has_operator_nequals<MemPool>) {
-      return get_pool() != other.get_pool();
-    } else {
-      return _pool != other._pool;
-    }
-  }
-
-  template<typename U>
-  requires(!std::same_as<T, U>)
-  constexpr bool operator!=(const rebind<U>& other) const noexcept {
-    if constexpr (meta::has_operator_nequals<MemPool>) {
-      return get_pool() != other.get_pool();
-    } else {
-      return _pool != other._pool;
-    }
-  }
-
-public:
-  const MemPool& get_pool() const { return *_pool; }
-  MemPool& get_pool() { return *_pool; }
-
-private:
-  MemPool* _pool;
-};
-
 typedef void*(*malloc_fn_t)(void* user_ptr, size_t size, size_t align);
 typedef void(*free_fn_t)(void* user_ptr, void* mem, size_t size);
 
@@ -188,8 +107,12 @@ public:
     return _pool->allocate(size, align);
   }
 
-  constexpr void deallocate(void* ptr, size_t size){
+  constexpr void deallocate(void* ptr, size_t size) noexcept {
     _pool->deallocate(ptr, size);
+  }
+
+  constexpr bool is_equal(const mempool_view& other) const noexcept {
+    return _pool->is_equal(other);
   }
 
 public:
@@ -203,32 +126,21 @@ private:
 // Default stateless memory pool
 class malloc_pool : public impl::mempool_ops<malloc_pool> {
 public:
-  template<typename T>
-  using adaptor_type = allocator_adaptor<T, malloc_pool>;
-
-public:
   malloc_pool() noexcept = default;
 
 public:
   void* allocate(size_t size, size_t align) const noexcept;
   void deallocate(void* mem, size_t size) const noexcept;
+  bool is_equal(const malloc_pool& other) const noexcept;
 
 public:
   static void* malloc_fn(void* user_ptr, size_t size, size_t align) noexcept;
   static void free_fn(void* user_ptr, void* mem, size_t size) noexcept;
-
-public:
-  template<typename T>
-  adaptor_type<T> make_adaptor() noexcept { return adaptor_type<T>{*this}; }
 };
 static_assert(meta::allocator_pool_type<malloc_pool>);
 
 // Fixed size arena
 class fixed_arena : public impl::mempool_ops<fixed_arena> {
-public:
-  template<typename T>
-  using adaptor_type = allocator_adaptor<T, fixed_arena>;
-
 public:
   fixed_arena(void* user_ptr, free_fn_t free_fn,
               void* block, size_t block_sz) noexcept;
@@ -239,7 +151,8 @@ public:
 
 public:
   void* allocate(size_t size, size_t align);
-  void deallocate(void* mem, size_t size);
+  void deallocate(void* mem, size_t size) noexcept;
+  bool is_equal(const fixed_arena& other) const noexcept;
 
   void clear() noexcept;
 
@@ -247,10 +160,6 @@ public:
   size_t size() const noexcept { return _used; }
   size_t capacity() const noexcept { return _allocated; }
   void* data() { return _block; }
-
-public:
-  template<typename T>
-  adaptor_type<T> make_adaptor() noexcept { return adaptor_type<T>{*this}; }
 
 private:
   void _free_block() noexcept;
@@ -270,10 +179,6 @@ static_assert(meta::allocator_pool_type<fixed_arena>);
 // Growing arena
 class linked_arena : public impl::mempool_ops<linked_arena> {
 public:
-  template<typename T>
-  using adaptor_type = allocator_adaptor<T, linked_arena>;
-
-public:
   linked_arena(void* user_ptr, malloc_fn_t malloc_fn, free_fn_t free_fn,
                void* block, size_t block_sz) noexcept;
 
@@ -284,13 +189,10 @@ public:
 public:
   void* allocate(size_t size, size_t alignment) noexcept;
   void deallocate(void* mem, size_t size) noexcept;
+  bool is_equal(const linked_arena& other) const noexcept;
 
 public:
   void clear() noexcept;
-
-public:
-  template<typename T>
-  adaptor_type<T> make_adaptor() noexcept { return adaptor_type<T>{*this}; }
 
 public:
   size_t size() const noexcept { return _total_used; }
@@ -315,13 +217,10 @@ public:
 static_assert(meta::allocator_pool_type<linked_arena>);
 
 // Arena in the stack
-template<size_t buffer_sz, size_t max_align = alignof(uint8)>
+template<size_t buffer_sz, size_t max_align = alignof(std::max_align_t)>
 requires(buffer_sz > 0u && max_align > 0u)
 class stack_arena : public impl::mempool_ops<stack_arena<buffer_sz, max_align>> {
 public:
-  template<typename T>
-  using adaptor_type = allocator_adaptor<T, stack_arena>;
-
   static constexpr size_t BUFFER_SIZE = buffer_sz;
 
 public:
@@ -329,23 +228,25 @@ public:
     _used{0u} {}
 
 public:
-  constexpr void* allocate(size_t size, size_t alignment) noexcept {
+  constexpr void* allocate(size_t size, size_t alignment) noexcept(NTF_NOEXCEPT) {
     const size_t available = BUFFER_SIZE-_used;
     const size_t padding = align_fw_adjust(ptr_add(data(), _used), alignment);
     const size_t required = padding+size;
     if (available < required) {
-      return nullptr;
+      if (std::is_constant_evaluated()) {
+        return nullptr;
+      } else {
+        NTF_THROW(std::bad_alloc);
+      }
     }
     void* ptr = ptr_add(data(), _used+padding);
     _used += required;
     return ptr;
   }
   constexpr void deallocate(void*, size_t) noexcept {}
+  constexpr bool is_equal(const malloc_pool& other) const noexcept { return (&other == this); }
 
   constexpr void clear() noexcept { _used = 0u; }
-
-  template<typename T>
-  constexpr adaptor_type<T> make_adaptor() noexcept { return adaptor_type<T>{*this}; }
 
 public:
   constexpr size_t size() const noexcept { return _used; }
