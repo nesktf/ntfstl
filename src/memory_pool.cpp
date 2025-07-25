@@ -48,7 +48,7 @@ void malloc_pool::free_fn(void* user_ptr, void* mem, size_t size) noexcept {
 }
 
 fixed_arena::fixed_arena(void* user_ptr, free_fn_t free_fn,
-              void* block, size_t block_sz) noexcept :
+                         void* block, size_t block_sz) noexcept :
   _user_ptr{user_ptr}, _free{free_fn},
   _block{block}, _used{0u}, _allocated{block_sz} {}
 

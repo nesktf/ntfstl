@@ -16,9 +16,17 @@ concept allocator_type = requires(Alloc& alloc, std::add_pointer_t<T> ptr, size_
 
 template<typename Deleter, typename T>
 concept array_deleter_type = requires(Deleter& del, T* arr, size_t n) {
-  requires noexcept(del(arr, n));
-  { del(arr, n) } -> std::same_as<void>;
+  requires noexcept(std::invoke(del, arr, n));
+  { std::invoke(del, arr, n) } -> std::same_as<void>;
+  { std::invoke(del, uninitialized, arr, n) } -> std::same_as<void>;
 } || std::same_as<Deleter, std::default_delete<T[]>>;
+
+template<typename Deleter, typename T>
+concept pointer_deleter_type = requires(Deleter& del, T* ptr) {
+  requires noexcept(std::invoke(del, ptr));
+  { std::invoke(del, ptr) } -> std::same_as<void>;
+  { std::invoke(del, uninitialized, ptr) } -> std::same_as<void>;
+};
 
 // Avoid using std::allocator_traits for templates with non-type arguments
 template<typename Alloc, typename T>
@@ -130,6 +138,15 @@ public:
 
   template<typename U = T>
   requires(std::convertible_to<T*, U*>)
+  void operator()(uninitialized_t, U* ptr)
+  noexcept(std::is_nothrow_destructible_v<T>)
+  {
+    static_assert(meta::is_complete<T>, "Cannot destroy incomplete type");
+    deall_base::_dealloc(ptr, 1u);
+  }
+
+  template<typename U = T>
+  requires(std::convertible_to<T*, U*>)
   void operator()(U* ptr, size_t n)
   noexcept(std::is_nothrow_destructible_v<T>)
   {
@@ -140,12 +157,20 @@ public:
     deall_base::_dealloc(ptr, n);
   }
 
+  template<typename U = T>
+  requires(std::convertible_to<T*, U*>)
+  void operator()(uninitialized_t, U* ptr, size_t n)
+  noexcept(std::is_nothrow_destructible_v<T>)
+  {
+    deall_base::_dealloc(ptr, n);
+  }
+
   Alloc& get_allocator() noexcept { return deall_base::_get_allocator(); }
   const Alloc& get_allocator() const noexcept { return deall_base::_get_allocator(); }
 };
 
 template<typename T>
-using default_alloc_del = allocator_delete<T, std::allocator<T>>;
+using default_delete = allocator_delete<T, std::allocator<T>>;
 template<
   meta::allocable_type T,
   size_t buff_sz = sizeof(malloc_funcs),
