@@ -622,13 +622,13 @@ public:
 
 public:
   T* allocate(size_type n) {
-    T* ptr = std::invoke(_alloc, _pool, nullptr, n*sizeof(T), alignof(T));
+    void* ptr = std::invoke(_alloc, _pool, nullptr, n*sizeof(T), alignof(T));
     NTF_THROW_IF(!ptr, std::bad_alloc);
-    return ptr;
+    return static_cast<T*>(ptr);
   }
 
   void deallocate(T* ptr, size_type n) noexcept {
-    std::invoke(_alloc, _pool, ptr, n*sizeof(T), alignof(T));
+    std::invoke(_alloc, _pool, static_cast<void*>(ptr), n*sizeof(T), alignof(T));
   }
 
 public:
