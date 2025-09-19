@@ -22,12 +22,12 @@ template<typename TL, typename... TR>
 concept convertible_to_any = (... or std::convertible_to<TL, TR>);
 
 template<typename T>
-concept has_operator_equals = requires(T a, T b) {
+concept has_operator_equals = requires(const T a, const T b) {
   { a == b } -> std::convertible_to<bool>;
 };
 
 template<typename T>
-concept has_operator_nequals = requires(T a, T b) {
+concept has_operator_nequals = requires(const T a, const T b) {
   { a != b } -> std::convertible_to<bool>;
 };
 
