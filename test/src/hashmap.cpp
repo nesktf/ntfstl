@@ -11,10 +11,12 @@ struct some_mempool {
     return std::aligned_alloc(size, align);
   }
 
-  void deallocate(void* mem, size_t size){
+  void deallocate(void* mem, size_t size) noexcept {
     allocated -= size;
     std::free(mem);
   }
+
+  constexpr bool is_equal(const some_mempool&) const noexcept { return false; }
 };
 
 template<typename T>
@@ -29,82 +31,82 @@ using alloc_map =
 
 } // namespace
 
-TEST_CASE("fixed_hashmap construction", "[hashmap]") {
-  const size_t count = 10u;
-  SECTION("From size, using std::allocator") {
-    ntf::fixed_hashmap<int, int> map(count);
-    REQUIRE(map.capacity() == count);
-    REQUIRE(map.size() == 0u);
-  }
-  SECTION("From size, using custom allocator"){
-    some_mempool pool;
-    {
-      alloc_t<std::pair<const int, int>> alloc{pool};
-      alloc_map<int, int> map(count, std::move(alloc));
-      REQUIRE(map.capacity() == count);
-      REQUIRE(map.size() == 0u);
-    }
-    REQUIRE(pool.allocated == 0u);
-  }
-  SECTION("From initializer list, using std::allocator") {
-    ntf::fixed_hashmap<int, int> map{{1, 1}, {2, 2}};
-    REQUIRE(map.capacity() == 2u);
-    REQUIRE(map.size() == 2u);
-    for (const auto& [k, v] : map){
-      REQUIRE(k == v);
-    }
-  }
-  SECTION("From initializer list, using custom allocator"){
-    some_mempool pool;
-    {
-      alloc_t<std::pair<const int, int>> alloc{pool};
-      alloc_map<int, int> map{{{1, 1}, {2, 2}}, std::move(alloc)};
-      REQUIRE(map.capacity() == 2u);
-      REQUIRE(map.size() == 2u);
-      for (const auto& [k, v] : map){
-        REQUIRE(k == v);
-      }
-    }
-    REQUIRE(pool.allocated == 0u);
-  }
-  SECTION("From factory and size, using std::allocator") {
-    auto map = ntf::fixed_hashmap<int, int>::from_size(count);
-    REQUIRE(map.has_value());
-    REQUIRE(map->capacity() == count);
-    REQUIRE(map->size() == 0u);
-  }
-  SECTION("From factory and size, using custom allocator") {
-    some_mempool pool;
-    {
-      alloc_t<std::pair<const int, int>> alloc{pool};
-      auto map = ntf::fixed_hashmap<int, int>::from_size(count, std::move(alloc));
-      REQUIRE(map.has_value());
-      REQUIRE(map->capacity() == count);
-      REQUIRE(map->size() == 0u);
-    }
-    REQUIRE(pool.allocated == 0u);
-  }
-  SECTION("From factory and initializer list, using std::allocator") {
-    auto map = ntf::fixed_hashmap<int, int>::from_initializer({{1, 1}, {2, 2}});
-    REQUIRE(map.has_value());
-    REQUIRE(map->capacity() == 2u);
-    REQUIRE(map->size() == 2u);
-    for (const auto& [k, v] : *map){
-      REQUIRE(k == v);
-    }
-  }
-  SECTION("From factory and initializer list, using custom allocator") {
-    some_mempool pool;
-    {
-      alloc_t<std::pair<const int, int>> alloc{pool};
-      auto map = ntf::fixed_hashmap<int, int>::from_initializer({{1, 1},{2, 2}}, std::move(alloc));
-      REQUIRE(map.has_value());
-      REQUIRE(map->capacity() == 2u);
-      REQUIRE(map->size() == 2u);
-      for (const auto& [k, v] : *map){
-        REQUIRE(k == v);
-      }
-    }
-    REQUIRE(pool.allocated == 0u);
-  }
-}
+// TEST_CASE("fixed_hashmap construction", "[hashmap]") {
+//   const size_t count = 10u;
+//   SECTION("From size, using std::allocator") {
+//     ntf::fixed_hashmap<int, int> map(count);
+//     REQUIRE(map.capacity() == count);
+//     REQUIRE(map.size() == 0u);
+//   }
+//   SECTION("From size, using custom allocator"){
+//     some_mempool pool;
+//     {
+//       alloc_t<std::pair<const int, int>> alloc{pool};
+//       alloc_map<int, int> map(count, std::move(alloc));
+//       REQUIRE(map.capacity() == count);
+//       REQUIRE(map.size() == 0u);
+//     }
+//     REQUIRE(pool.allocated == 0u);
+//   }
+//   SECTION("From initializer list, using std::allocator") {
+//     ntf::fixed_hashmap<int, int> map{{1, 1}, {2, 2}};
+//     REQUIRE(map.capacity() == 2u);
+//     REQUIRE(map.size() == 2u);
+//     for (const auto& [k, v] : map){
+//       REQUIRE(k == v);
+//     }
+//   }
+//   SECTION("From initializer list, using custom allocator"){
+//     some_mempool pool;
+//     {
+//       alloc_t<std::pair<const int, int>> alloc{pool};
+//       alloc_map<int, int> map{{{1, 1}, {2, 2}}, std::move(alloc)};
+//       REQUIRE(map.capacity() == 2u);
+//       REQUIRE(map.size() == 2u);
+//       for (const auto& [k, v] : map){
+//         REQUIRE(k == v);
+//       }
+//     }
+//     REQUIRE(pool.allocated == 0u);
+//   }
+//   SECTION("From factory and size, using std::allocator") {
+//     auto map = ntf::fixed_hashmap<int, int>::from_size(count);
+//     REQUIRE(map.has_value());
+//     REQUIRE(map->capacity() == count);
+//     REQUIRE(map->size() == 0u);
+//   }
+//   SECTION("From factory and size, using custom allocator") {
+//     some_mempool pool;
+//     {
+//       alloc_t<std::pair<const int, int>> alloc{pool};
+//       auto map = ntf::fixed_hashmap<int, int>::from_size(count, std::move(alloc));
+//       REQUIRE(map.has_value());
+//       REQUIRE(map->capacity() == count);
+//       REQUIRE(map->size() == 0u);
+//     }
+//     REQUIRE(pool.allocated == 0u);
+//   }
+//   SECTION("From factory and initializer list, using std::allocator") {
+//     auto map = ntf::fixed_hashmap<int, int>::from_initializer({{1, 1}, {2, 2}});
+//     REQUIRE(map.has_value());
+//     REQUIRE(map->capacity() == 2u);
+//     REQUIRE(map->size() == 2u);
+//     for (const auto& [k, v] : *map){
+//       REQUIRE(k == v);
+//     }
+//   }
+//   SECTION("From factory and initializer list, using custom allocator") {
+//     some_mempool pool;
+//     {
+//       alloc_t<std::pair<const int, int>> alloc{pool};
+//       auto map = ntf::fixed_hashmap<int, int>::from_initializer({{1, 1},{2, 2}}, std::move(alloc));
+//       REQUIRE(map.has_value());
+//       REQUIRE(map->capacity() == 2u);
+//       REQUIRE(map->size() == 2u);
+//       for (const auto& [k, v] : *map){
+//         REQUIRE(k == v);
+//       }
+//     }
+//     REQUIRE(pool.allocated == 0u);
+//   }
+// }

@@ -10,14 +10,17 @@ struct some_mempool {
 
   void* allocate(size_t size, size_t align) {
     allocated += size;
-    return std::aligned_alloc(size, align);
+    return std::aligned_alloc(align, size);
   }
 
-  void deallocate(void* mem, size_t size){
+  void deallocate(void* mem, size_t size) noexcept {
     allocated -= size;
     std::free(mem);
   }
+
+  bool is_equal(const some_mempool&) const noexcept { return false; }
 };
+static_assert(ntf::meta::allocator_pool_type<some_mempool>);;
 
 } // namespace
 
