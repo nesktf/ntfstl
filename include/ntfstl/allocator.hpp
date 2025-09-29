@@ -2,6 +2,7 @@
 
 #include <ntfstl/any.hpp>
 #include <ntfstl/memory_pool.hpp>
+#include <memory>
 
 namespace ntf {
 
