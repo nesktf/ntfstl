@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <charconv>
 #include <ntfstl/optional.hpp>
 
 namespace {
@@ -7,9 +8,7 @@ namespace {
 struct nullable_thing {
   constexpr nullable_thing(int val = 0) noexcept : value{val} {}
 
-  constexpr bool operator==(const nullable_thing& other) const {
-    return value == other.value;
-  }
+  constexpr bool operator==(const nullable_thing& other) const { return value == other.value; }
 
   int value;
 };
@@ -18,7 +17,7 @@ struct nullable_thing {
 
 template<>
 struct ntf::optional_null<nullable_thing> :
-  public std::integral_constant<nullable_thing, nullable_thing{}> {};
+    public std::integral_constant<nullable_thing, nullable_thing{}> {};
 
 // Check optimizations
 static_assert(ntf::meta::optimized_optional_type<void*>);
@@ -180,20 +179,20 @@ TEST_CASE("optional monadic operations", "[optional]") {
   SECTION("and_then") {
     auto lvalue = parse_string("4");
     auto lvalue_ret = lvalue.and_then([](int value) -> ntf::optional<int> {
-      return {std::in_place, value*3};
+      return {std::in_place, value * 3};
     });
     REQUIRE(lvalue_ret.has_value());
     REQUIRE(*lvalue_ret == 12);
 
     const auto const_lvalue = parse_string("8");
     auto const_lvalue_ret = const_lvalue.and_then([](int value) -> ntf::optional<int> {
-      return {std::in_place, value*4};
+      return {std::in_place, value * 4};
     });
     REQUIRE(const_lvalue.has_value());
     REQUIRE(*const_lvalue_ret == 32);
 
     auto rvalue_ret = parse_string("2").and_then([](int value) -> ntf::optional<int> {
-      return {std::in_place, value*2};
+      return {std::in_place, value * 2};
     });
     REQUIRE(rvalue_ret.has_value());
     REQUIRE(*rvalue_ret == 4);
@@ -201,38 +200,56 @@ TEST_CASE("optional monadic operations", "[optional]") {
 
   SECTION("transform") {
     auto lvalue = parse_string("4");
-    auto lvalue_ret = lvalue.transform([](int value) -> int {
-      return value*3;
-    });
+    auto lvalue_ret = lvalue.transform([](int value) -> int { return value * 3; });
     REQUIRE(lvalue_ret.has_value());
     REQUIRE(*lvalue_ret == 12);
 
     const auto const_lvalue = parse_string("8");
-    auto const_lvalue_ret = const_lvalue.transform([](int value) -> int {
-      return value*4;
-    });
+    auto const_lvalue_ret = const_lvalue.transform([](int value) -> int { return value * 4; });
     REQUIRE(const_lvalue.has_value());
     REQUIRE(*const_lvalue_ret == 32);
 
-    auto rvalue_ret = parse_string("2").transform([](int value) -> int {
-      return value*2;
-    });
+    auto rvalue_ret = parse_string("2").transform([](int value) -> int { return value * 2; });
     REQUIRE(rvalue_ret.has_value());
     REQUIRE(*rvalue_ret == 4);
   }
 
   SECTION("or_else") {
     auto lvalue = parse_string("u");
-    auto lvalue_ret = lvalue.or_else([]() -> ntf::optional<int> {
-      return {std::in_place, 2};
-    });
+    auto lvalue_ret = lvalue.or_else([]() -> ntf::optional<int> { return {std::in_place, 2}; });
     REQUIRE(lvalue_ret.has_value());
-    REQUIRE(*lvalue_ret == 2);;
+    REQUIRE(*lvalue_ret == 2);
 
     auto rvalue_ret = parse_string("i").or_else([]() -> ntf::optional<int> {
       return {std::in_place, 4};
     });
     REQUIRE(rvalue_ret.has_value());
-    REQUIRE(*rvalue_ret == 4);;
+    REQUIRE(*rvalue_ret == 4);
   }
+}
+
+TEST_CASE("optional emplacing & reset", "[optional]") {
+  ntf::optional<int> opt_basic;
+  REQUIRE(!opt_basic.has_value());
+  opt_basic.emplace(1);
+  REQUIRE(opt_basic.has_value());
+  REQUIRE(opt_basic.value() == 1);
+  opt_basic.reset();
+  REQUIRE(!opt_basic.has_value());
+
+  ntf::optional<void*> opt_ptr;
+  REQUIRE(!opt_ptr.has_value());
+  opt_ptr.emplace(some_address);
+  REQUIRE(opt_ptr.has_value());
+  REQUIRE(opt_ptr.value() == some_address);
+  opt_ptr.reset();
+  REQUIRE(!opt_ptr.has_value());
+
+  ntf::optional<nullable_thing> opt_custom;
+  REQUIRE(!opt_custom.has_value());
+  opt_custom.emplace(3);
+  REQUIRE(opt_custom.has_value());
+  REQUIRE(opt_custom.value() == nullable_thing{3});
+  opt_custom.reset();
+  REQUIRE(!opt_custom.has_value());
 }
