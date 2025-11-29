@@ -1,22 +1,27 @@
 #pragma once
 
+#include <functional>
 #include <ntfstl/types.hpp>
 
 // #include <variant>
 
-#define NTF_DECLARE_PUBLIC_CAST(_member, _tag) \
-struct _tag{}; \
-namespace ntf::meta { \
-consteval auto public_cast_impl(_tag) noexcept; \
-template struct public_cast_t<_tag, _member>; \
-template<> \
-consteval auto public_cast<_tag>() noexcept { return public_cast_impl(_tag{}); } \
-}
+#define NTF_DECLARE_PUBLIC_CAST(_member, _tag)    \
+  struct _tag {};                                 \
+  namespace ntf::meta {                           \
+  consteval auto public_cast_impl(_tag) noexcept; \
+  template struct public_cast_t<_tag, _member>;   \
+  template<>                                      \
+  consteval auto public_cast<_tag>() noexcept {   \
+    return public_cast_impl(_tag{});              \
+  }                                               \
+  }
 
 namespace ntf {
 
 template<typename... Fs>
-struct overload : Fs... { using Fs::operator()...; };
+struct overload : Fs... {
+  using Fs::operator()...;
+};
 
 template<typename... Fs>
 overload(Fs...) -> overload<Fs...>;
@@ -34,15 +39,14 @@ overload(Fs...) -> overload<Fs...>;
 // }
 
 template<typename T>
-constexpr T implicit_cast(std::type_identity_t<T> val)
-noexcept(std::is_nothrow_move_constructible_v<T>)
-{
+constexpr T
+implicit_cast(std::type_identity_t<T> val) noexcept(std::is_nothrow_move_constructible_v<T>) {
   return val;
 }
 
 namespace meta {
 
-template<typename T = decltype([]{})>
+template<typename T = decltype([] {})>
 using unique_type_t = T;
 
 /* For the lulz
@@ -57,11 +61,12 @@ using unique_type_t = T;
  * thing t;
  * t.*ntf::meta::public_cast<thing_x>() = 400;
  * (t.*ntf::meta::public_cast<thing_other>())();
-*/
+ */
 template<typename TagT, auto Member>
 struct public_cast_t {
   consteval friend auto public_cast_impl(TagT) noexcept { return Member; }
 };
+
 template<typename TagT>
 consteval auto public_cast() noexcept {
   return public_cast_impl(TagT{});
@@ -70,27 +75,27 @@ consteval auto public_cast() noexcept {
 } // namespace meta
 
 // Lifetime logger thing
-template<size_t dummy_sz = 19*sizeof(uint32), bool call_noexcept = true>
+template<size_t dummy_sz = 19 * sizeof(uint32), bool call_noexcept = true>
 struct chiruno_t {
-  chiruno_t() : baka{0u} {
-    fmt::print("chiruno_t::chiruno_t() [{}]\n", baka);
-  }
-  chiruno_t(uint32 a) : baka{a} {
-    fmt::print("chiruno_t::chiruno_t(uint32) [{}]\n", baka);
-  }
-  ~chiruno_t() noexcept {
-    fmt::print("chiruno_t::~chiruno_t() [{}]\n", baka);
-  }
+  chiruno_t() : baka{0u} { fmt::print("chiruno_t::chiruno_t() [{}]\n", baka); }
+
+  chiruno_t(uint32 a) : baka{a} { fmt::print("chiruno_t::chiruno_t(uint32) [{}]\n", baka); }
+
+  ~chiruno_t() noexcept { fmt::print("chiruno_t::~chiruno_t() [{}]\n", baka); }
+
   chiruno_t(chiruno_t&& other) noexcept : baka{other.baka} {
     fmt::print("chiruno_t::chiruno_t(chiruno_t&&) [{}]\n", baka);
   }
+
   chiruno_t(const chiruno_t& other) noexcept : baka{other.baka} {
     fmt::print("chiruno_t::chiruno_t(const chiruno_t&) [{}]\n", baka);
   }
+
   chiruno_t& operator=(chiruno_t&&) noexcept {
     fmt::print("chiruno_t::operator=(chiruno_t&&)\n");
     return *this;
   }
+
   chiruno_t& operator=(const chiruno_t&) noexcept {
     fmt::print("chiruno_t::operator=(const chiruno_t&)\n");
     return *this;
@@ -103,5 +108,54 @@ struct chiruno_t {
   uint32 baka;
   uint8 _dummy[dummy_sz];
 };
+
+// Wrap an object + member function in a callable
+template<auto fun, typename T>
+constexpr auto lambda_wrap(T& obj) {
+  return [&obj]<typename... Args>(Args&&... args) {
+    return (&obj->*fun)(std::forward<Args>(args)...);
+  };
+}
+
+// Wrap an object + member function in a callable
+template<auto fun, typename T>
+constexpr auto lambda_wrap(T* obj) {
+  return [obj]<typename... Args>(Args&&... args) {
+    return (obj->*fun)(std::forward<Args>(args)...);
+  };
+}
+
+// Same as C++23's std::bind_front, but supporting compile time bound values
+template<auto Func, auto... Binds, typename... Params>
+constexpr auto bind_front(Params&&... params) {
+  // TODO: Forward captured params instead of copying
+  if constexpr (sizeof...(params) == 0) {
+    return []<typename... InnerParam>(InnerParam&&... ps) {
+      return std::invoke(Func, Binds..., std::forward<InnerParam>(ps)...);
+    };
+  } else {
+    return
+      [... params = std::forward<Params>(params)]<typename... InnerParam>(InnerParam&&... ps) {
+        return std::invoke(Func, Binds..., params..., std::forward<InnerParam>(ps)...);
+      };
+  }
+}
+
+// Same as C++23's std::bind_back, but supporting compile time bound values
+template<auto Func, auto... Binds, typename... Params>
+constexpr auto bind_back(Params&&... params) {
+  // TODO: Forward captured params instead of copying
+  if constexpr (sizeof...(params) == 0) {
+    return []<typename... InnerParam>(InnerParam&&... ps) {
+      return std::invoke(Func, std::forward<InnerParam>(ps)..., Binds...);
+    };
+
+  } else {
+    return
+      [... params = std::forward<Params>(params)]<typename... InnerParam>(InnerParam&&... ps) {
+        return std::invoke(Func, std::forward<InnerParam>(ps)..., params..., Binds...);
+      };
+  }
+}
 
 } // namespace ntf

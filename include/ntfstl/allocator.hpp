@@ -1,8 +1,8 @@
 #pragma once
 
+#include <memory>
 #include <ntfstl/any.hpp>
 #include <ntfstl/memory_pool.hpp>
-#include <memory>
 
 namespace ntf {
 
@@ -66,24 +66,20 @@ namespace impl {
 
 template<typename T, typename Alloc>
 struct alloc_del_dealloc : private Alloc {
-  alloc_del_dealloc() :
-    Alloc{} {}
+  alloc_del_dealloc() : Alloc{} {}
 
   template<typename U>
   alloc_del_dealloc(std::in_place_type_t<U>, const meta::rebind_alloc_t<Alloc, U>& other) :
-    Alloc{other} {}
+      Alloc{other} {}
 
-  alloc_del_dealloc(const Alloc& alloc) :
-    Alloc{alloc} {}
+  alloc_del_dealloc(const Alloc& alloc) : Alloc{alloc} {}
 
-  alloc_del_dealloc(Alloc&& alloc) :
-    Alloc{std::move(alloc)} {}
+  alloc_del_dealloc(Alloc&& alloc) : Alloc{std::move(alloc)} {}
 
-  void _dealloc(T* ptr, size_t sz) {
-    Alloc::deallocate(ptr, sz);
-  }
+  void _dealloc(T* ptr, size_t sz) { Alloc::deallocate(ptr, sz); }
 
   Alloc& _get_allocator() { return static_cast<Alloc&>(*this); }
+
   const Alloc& _get_allocator() const { return static_cast<const Alloc&>(*this); }
 };
 
@@ -102,34 +98,26 @@ private:
   friend class allocator_delete;
 
 public:
-  allocator_delete()
-  noexcept(std::is_nothrow_default_constructible_v<Alloc>) :
-    deall_base{} {}
+  allocator_delete() noexcept(std::is_nothrow_default_constructible_v<Alloc>) : deall_base{} {}
 
-  allocator_delete(Alloc&& alloc)
-  noexcept(std::is_nothrow_move_constructible_v<Alloc>) :
-    deall_base{std::move(alloc)} {}
+  allocator_delete(Alloc&& alloc) noexcept(std::is_nothrow_move_constructible_v<Alloc>) :
+      deall_base{std::move(alloc)} {}
 
-  allocator_delete(const Alloc& alloc)
-  noexcept(std::is_nothrow_copy_constructible_v<Alloc>):
-    deall_base{alloc} {}
+  allocator_delete(const Alloc& alloc) noexcept(std::is_nothrow_copy_constructible_v<Alloc>) :
+      deall_base{alloc} {}
 
-  allocator_delete(const allocator_delete& other)
-  noexcept(std::is_nothrow_copy_constructible_v<Alloc>) :
-    deall_base{other.get_allocator()} {}
+  allocator_delete(const allocator_delete& other) noexcept(
+    std::is_nothrow_copy_constructible_v<Alloc>) : deall_base{other.get_allocator()} {}
 
   template<typename U>
   requires(!std::same_as<T, U>)
-  allocator_delete(const rebind<U>& other)
-  noexcept(std::is_nothrow_copy_constructible_v<Alloc>) :
-    deall_base{std::in_place_type_t<U>{}, other.get_allocator()} {}
+  allocator_delete(const rebind<U>& other) noexcept(std::is_nothrow_copy_constructible_v<Alloc>) :
+      deall_base{std::in_place_type_t<U>{}, other.get_allocator()} {}
 
 public:
   template<typename U = T>
   requires(std::convertible_to<T*, U*>)
-  void operator()(U* ptr)
-  noexcept(std::is_nothrow_destructible_v<T>)
-  {
+  void operator()(U* ptr) noexcept(std::is_nothrow_destructible_v<T>) {
     static_assert(meta::is_complete<T>, "Cannot destroy incomplete type");
     if constexpr (!std::is_trivially_destructible_v<T>) {
       std::destroy_at(ptr);
@@ -139,18 +127,14 @@ public:
 
   template<typename U = T>
   requires(std::convertible_to<T*, U*>)
-  void operator()(uninitialized_t, U* ptr)
-  noexcept(std::is_nothrow_destructible_v<T>)
-  {
+  void operator()(uninitialized_t, U* ptr) noexcept(std::is_nothrow_destructible_v<T>) {
     static_assert(meta::is_complete<T>, "Cannot destroy incomplete type");
     deall_base::_dealloc(ptr, 1u);
   }
 
   template<typename U = T>
   requires(std::convertible_to<T*, U*>)
-  void operator()(U* ptr, size_t n)
-  noexcept(std::is_nothrow_destructible_v<T>)
-  {
+  void operator()(U* ptr, size_t n) noexcept(std::is_nothrow_destructible_v<T>) {
     static_assert(meta::is_complete<T>, "Cannot destroy incomplete type");
     if constexpr (!std::is_trivially_destructible_v<T>) {
       std::destroy_n(ptr, n);
@@ -160,35 +144,26 @@ public:
 
   template<typename U = T>
   requires(std::convertible_to<T*, U*>)
-  void operator()(uninitialized_t, U* ptr, size_t n)
-  noexcept(std::is_nothrow_destructible_v<T>)
-  {
+  void operator()(uninitialized_t, U* ptr, size_t n) noexcept(std::is_nothrow_destructible_v<T>) {
     deall_base::_dealloc(ptr, n);
   }
 
   Alloc& get_allocator() noexcept { return deall_base::_get_allocator(); }
+
   const Alloc& get_allocator() const noexcept { return deall_base::_get_allocator(); }
 };
 
 template<typename T>
 using default_delete = allocator_delete<T, std::allocator<T>>;
-template<
-  meta::allocable_type T,
-  size_t buff_sz = sizeof(malloc_funcs),
-  move_policy policy = move_policy::copyable,
-  size_t max_align = alignof(malloc_funcs)
->
-class virtual_inplace_alloc
-  : public impl::inplace_nontrivial<
-    virtual_inplace_alloc<T, buff_sz, policy, max_align>,
-    buff_sz, policy, max_align
-  >
-{
+
+template<meta::allocable_type T, size_t buff_sz = sizeof(malloc_funcs),
+         move_policy policy = move_policy::copyable, size_t max_align = alignof(malloc_funcs)>
+class virtual_inplace_alloc :
+    public impl::inplace_nontrivial<virtual_inplace_alloc<T, buff_sz, policy, max_align>, buff_sz,
+                                    policy, max_align> {
 private:
-  using base_t = impl::inplace_nontrivial<
-    virtual_inplace_alloc<T, buff_sz, policy, max_align>,
-    buff_sz, policy, max_align
-  >;
+  using base_t = impl::inplace_nontrivial<virtual_inplace_alloc<T, buff_sz, policy, max_align>,
+                                          buff_sz, policy, max_align>;
   friend base_t;
 
 public:
@@ -207,7 +182,7 @@ private:
   template<typename U>
   static constexpr bool _valid_pool = ntf::meta::allocator_pool_type<std::decay_t<U>>;
 
-  using allocator_call_t = void*(*)(uint8*, void*, size_t, size_t);
+  using allocator_call_t = void* (*)(uint8*, void*, size_t, size_t);
 
   template<typename U>
   static void* _caller_for(uint8* buff, void* ptr, size_t sz, size_t align) {
@@ -222,74 +197,60 @@ private:
 
 public:
   template<typename U, typename... Args>
-  virtual_inplace_alloc(std::in_place_type_t<U> tag, Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<U>, Args...>)
-  requires(_valid_pool<U> && base_t::template _can_store_type<U>) :
-    base_t{tag},
-    _dispatcher{&base_t::template _dispatcher_for<U>},
-    _alloc_call{&_caller_for<U>}
-  {
+  virtual_inplace_alloc(std::in_place_type_t<U> tag, Args&&... args) noexcept(
+    std::is_nothrow_constructible_v<std::decay_t<U>, Args...>)
+  requires(_valid_pool<U> && base_t::template _can_store_type<U>)
+      :
+      base_t{tag}, _dispatcher{&base_t::template _dispatcher_for<U>},
+      _alloc_call{&_caller_for<U>} {
     base_t::template _construct<U>(std::forward<Args>(args)...);
   }
 
   template<typename U, typename V, typename... Args>
-  virtual_inplace_alloc(std::in_place_type_t<U> tag, std::initializer_list<V> il, Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<U>, std::initializer_list<V>, Args...>)
-  requires(_valid_pool<U> && base_t::template _can_store_type<U>) :
-    base_t{tag},
-    _dispatcher{&base_t::template _dispatcher_for<U>},
-    _alloc_call{&_caller_for<U>}
-  {
+  virtual_inplace_alloc(
+    std::in_place_type_t<U> tag, std::initializer_list<V> il,
+    Args&&... args) noexcept(std::is_nothrow_constructible_v<std::decay_t<U>,
+                                                             std::initializer_list<V>, Args...>)
+  requires(_valid_pool<U> && base_t::template _can_store_type<U>)
+      :
+      base_t{tag}, _dispatcher{&base_t::template _dispatcher_for<U>},
+      _alloc_call{&_caller_for<U>} {
     base_t::template _construct<U>(il, std::forward<Args>(args)...);
   }
 
   template<typename U>
-  virtual_inplace_alloc(U&& obj)
-  noexcept(meta::is_nothrow_forward_constructible<U>)
+  virtual_inplace_alloc(U&& obj) noexcept(meta::is_nothrow_forward_constructible<U>)
   requires(_valid_pool<U> && base_t::template _can_store_type<U> &&
-           base_t::template _can_forward_type<U>) :
-    base_t{std::in_place_type_t<U>{}},
-    _dispatcher{&base_t::template _dispatcher_for<U>},
-    _alloc_call{&_caller_for<U>}
-  {
+           base_t::template _can_forward_type<U>)
+      :
+      base_t{std::in_place_type_t<U>{}}, _dispatcher{&base_t::template _dispatcher_for<U>},
+      _alloc_call{&_caller_for<U>} {
     base_t::template _construct<U>(std::forward<U>(obj));
   }
 
   template<typename U>
   virtual_inplace_alloc(const rebind<U>& other)
-  requires(!std::same_as<T, std::decay_t<U>> && base_t::_can_copy) :
-    base_t{other._type_id},
-    _dispatcher{other._dispatcher},
-    _alloc_call{other._alloc_call}
-  {
+  requires(!std::same_as<T, std::decay_t<U>> && base_t::_can_copy)
+      : base_t{other._type_id}, _dispatcher{other._dispatcher}, _alloc_call{other._alloc_call} {
     base_t::_copy_from(other._storage);
   }
 
   template<typename U>
   virtual_inplace_alloc(rebind<U>&& other)
-  requires(!std::same_as<T, std::decay_t<U>> && base_t::_can_move) :
-    base_t{other._type_id},
-    _dispatcher{other._dispatcher},
-    _alloc_call{other._alloc_call}
-  {
+  requires(!std::same_as<T, std::decay_t<U>> && base_t::_can_move)
+      : base_t{other._type_id}, _dispatcher{other._dispatcher}, _alloc_call{other._alloc_call} {
     base_t::_move_from(other._storage);
   }
 
   virtual_inplace_alloc(const virtual_inplace_alloc& other)
-  requires(base_t::_can_copy) :
-    base_t{other._type_id},
-    _dispatcher{other._dispatcher},
-    _alloc_call{other._alloc_call}
-  {
+  requires(base_t::_can_copy)
+      : base_t{other._type_id}, _dispatcher{other._dispatcher}, _alloc_call{other._alloc_call} {
     base_t::_copy_from(other._storage);
   }
 
   virtual_inplace_alloc(virtual_inplace_alloc&& other)
-  requires(base_t::_can_move) :
-    base_t{other._type_id},
-    _dispatcher{other._dispatcher},
-    _alloc_call{other._alloc_call}
-  {
+  requires(base_t::_can_move)
+      : base_t{other._type_id}, _dispatcher{other._dispatcher}, _alloc_call{other._alloc_call} {
     base_t::_move_from(other._storage);
   }
 
@@ -297,45 +258,44 @@ public:
 
 public:
   template<typename U, typename... Args>
-  std::decay_t<U>& emplace(Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<U>, Args...>)
+  std::decay_t<U>&
+  emplace(Args&&... args) noexcept(std::is_nothrow_constructible_v<std::decay_t<U>, Args...>)
   requires(_valid_pool<U> && base_t::template _can_store_type<U>)
   {
     base_t::_destroy();
     _set_meta<U>();
     try {
       return base_t::template _construct<U>(std::forward<Args>(args)...);
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
   }
 
   template<typename U, typename V, typename... Args>
-  std::decay_t<U>& emplace(std::initializer_list<V> li, Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<U>, std::initializer_list<V>, Args...>)
+  std::decay_t<U>& emplace(std::initializer_list<V> li, Args&&... args) noexcept(
+    std::is_nothrow_constructible_v<std::decay_t<U>, std::initializer_list<V>, Args...>)
   requires(_valid_pool<U> && base_t::template _can_store_type<U>)
   {
     base_t::_destroy();
     _set_meta<U>();
     try {
       return base_t::template _construct<U>(li, std::forward<Args>(args)...);
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
   }
 
   template<typename U>
-  virtual_inplace_alloc& operator=(U&& obj)
-  noexcept(meta::is_nothrow_forward_constructible<U>)
+  virtual_inplace_alloc& operator=(U&& obj) noexcept(meta::is_nothrow_forward_constructible<U>)
   requires(_valid_pool<U> && base_t::template _can_store_type<U>)
   {
     base_t::_destroy();
     _set_meta<U>();
     try {
       base_t::template _construct<U>(std::forward<U>(obj));
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
@@ -352,7 +312,7 @@ public:
     _set_meta(other);
     try {
       base_t::_copy_from(other._storage);
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
@@ -369,7 +329,7 @@ public:
     _set_meta(other);
     try {
       base_t::_copy_from(other._storage);
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
@@ -384,7 +344,7 @@ public:
     _set_meta(other);
     try {
       base_t::_copy_from(other._storage);
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
@@ -399,7 +359,7 @@ public:
     _set_meta(other);
     try {
       base_t::_copy_from(other._storage);
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
@@ -409,16 +369,16 @@ public:
 public:
   pointer allocate(size_type n) {
     NTF_ASSERT(!valueless_by_exception(), "Valueless allocator");
-    void* ptr = std::invoke(_alloc_call, this->_storage,
-                            nullptr, n*sizeof(value_type), alignof(value_type));
+    void* ptr = std::invoke(_alloc_call, this->_storage, nullptr, n * sizeof(value_type),
+                            alignof(value_type));
     NTF_THROW_IF(!ptr, std::bad_alloc);
     return reinterpret_cast<pointer>(ptr);
   }
 
   void deallocate(pointer ptr, size_type n) {
     NTF_ASSERT(!valueless_by_exception(), "Valueless allocator");
-    std::invoke(_alloc_call, this->_storage,
-                reinterpret_cast<void*>(ptr), n*sizeof(value_type), alignof(value_type));
+    std::invoke(_alloc_call, this->_storage, reinterpret_cast<void*>(ptr), n * sizeof(value_type),
+                alignof(value_type));
   }
 
   template<typename... Args>
@@ -486,26 +446,23 @@ private:
   friend class allocator_adaptor;
 
 public:
-  constexpr allocator_adaptor(MemPool& pool) noexcept :
-    _pool{std::addressof(pool)} {}
+  constexpr allocator_adaptor(MemPool& pool) noexcept : _pool{std::addressof(pool)} {}
 
-  constexpr allocator_adaptor(const allocator_adaptor& other) noexcept :
-    _pool{other._pool} {}
+  constexpr allocator_adaptor(const allocator_adaptor& other) noexcept : _pool{other._pool} {}
 
   template<typename U>
   requires(!std::same_as<T, U>)
-  constexpr allocator_adaptor(const rebind<U>& other) noexcept :
-    _pool{other._pool} {}
+  constexpr allocator_adaptor(const rebind<U>& other) noexcept : _pool{other._pool} {}
 
 public:
   constexpr pointer allocate(size_type n) {
-    void* ptr = _pool->allocate(n*sizeof(value_type), alignof(value_type));
+    void* ptr = _pool->allocate(n * sizeof(value_type), alignof(value_type));
     NTF_THROW_IF(!ptr, std::bad_alloc);
     return reinterpret_cast<pointer>(ptr);
   }
 
   constexpr void deallocate(pointer ptr, size_type n) {
-    _pool->deallocate(ptr, n*sizeof(value_type));
+    _pool->deallocate(ptr, n * sizeof(value_type));
   }
 
 public:
@@ -547,6 +504,7 @@ public:
 
 public:
   const MemPool& get_pool() const { return *_pool; }
+
   MemPool& get_pool() { return *_pool; }
 
 private:
@@ -556,8 +514,8 @@ private:
 template<meta::allocable_type T = std::byte>
 class virtual_allocator {
 private:
-  using PFN_alloc = void*(*)(void* user, void* mem, size_t size, size_t align);
-  using PFN_equal = bool(*)(void* a, const void* other);
+  using PFN_alloc = void* (*)(void* user, void* mem, size_t size, size_t align);
+  using PFN_equal = bool (*)(void* a, const void* other);
 
   template<typename U>
   static void* _alloc_for(void* user, void* mem, size_t size, size_t align) {
@@ -586,9 +544,7 @@ private:
     }
   }
 
-  static bool _malloc_equals(void*, const void*) noexcept {
-    return true;
-  }
+  static bool _malloc_equals(void*, const void*) noexcept { return true; }
 
 public:
   using value_type = T;
@@ -604,32 +560,32 @@ public:
 
 public:
   virtual_allocator() noexcept :
-    _pool{nullptr}, _alloc{&_malloc_alloc}, _equals{&_malloc_equals} {}
+      _pool{nullptr}, _alloc{&_malloc_alloc}, _equals{&_malloc_equals} {}
 
   template<meta::allocator_pool_type U>
   virtual_allocator(U& pool) noexcept :
-    _pool{std::addressof(pool)}, _alloc{&_alloc_for<U>}, _equals{&_equals_for<U>} {}
+      _pool{std::addressof(pool)}, _alloc{&_alloc_for<U>}, _equals{&_equals_for<U>} {}
 
   template<meta::allocator_pool_type U>
   virtual_allocator(U* pool) noexcept :
-    _pool{pool}, _alloc{&_alloc_for<U>}, _equals{&_equals_for<U>} {}
+      _pool{pool}, _alloc{&_alloc_for<U>}, _equals{&_equals_for<U>} {}
 
   virtual_allocator(const virtual_allocator& other) noexcept = default;
 
   template<typename U>
   requires(!std::same_as<T, std::decay_t<U>>)
   virtual_allocator(const rebind<U>& other) noexcept :
-    _pool{other._pool}, _alloc{other._alloc}, _equals{other._equals} {}
+      _pool{other._pool}, _alloc{other._alloc}, _equals{other._equals} {}
 
 public:
   T* allocate(size_type n) {
-    void* ptr = std::invoke(_alloc, _pool, nullptr, n*sizeof(T), alignof(T));
+    void* ptr = std::invoke(_alloc, _pool, nullptr, n * sizeof(T), alignof(T));
     NTF_THROW_IF(!ptr, std::bad_alloc);
     return static_cast<T*>(ptr);
   }
 
   void deallocate(T* ptr, size_type n) noexcept {
-    std::invoke(_alloc, _pool, static_cast<void*>(ptr), n*sizeof(T), alignof(T));
+    std::invoke(_alloc, _pool, static_cast<void*>(ptr), n * sizeof(T), alignof(T));
   }
 
 public:
@@ -666,11 +622,9 @@ public:
     } else {
       return false;
     }
-  };
-
-  bool operator!=(const virtual_allocator& other) const noexcept {
-    return !(*this == other);
   }
+
+  bool operator!=(const virtual_allocator& other) const noexcept { return !(*this == other); }
 
   template<typename U>
   requires(!std::same_as<T, std::decay_t<U>>)
@@ -680,7 +634,7 @@ public:
     } else {
       return false;
     }
-  };
+  }
 
   template<typename U>
   requires(!std::same_as<T, std::decay_t<U>>)

@@ -4,20 +4,6 @@
 
 namespace ntf {
 
-template<auto fun, typename T>
-constexpr auto lambda_wrap(T& obj) {
-  return [&obj](auto&&... args) {
-    return (&obj->*fun)(std::forward<decltype(args)>(args)...);
-  };
-}
-
-template<auto fun, typename T>
-constexpr auto lambda_wrap(T* obj) {
-  return [obj](auto&&... args) {
-    return (obj->*fun)(std::forward<decltype(args)>(args)...);
-  };
-}
-
 template<typename Signature>
 class function_view;
 
@@ -38,24 +24,23 @@ public:
   using return_type = Ret;
 
 public:
-  constexpr function_view() noexcept :
-    _data{nullptr}, _invoke_ptr{nullptr} {}
+  constexpr function_view() noexcept : _data{nullptr}, _invoke_ptr{nullptr} {}
 
   explicit constexpr function_view(std::nullptr_t) noexcept :
-    _data{nullptr}, _invoke_ptr{nullptr} {}
+      _data{nullptr}, _invoke_ptr{nullptr} {}
 
-  explicit constexpr function_view(Ret(*fun)(Args...)) noexcept :
-    _data{nullptr}, _invoke_ptr{fun} {}
+  explicit constexpr function_view(Ret (*fun)(Args...)) noexcept :
+      _data{nullptr}, _invoke_ptr{fun} {}
 
   template<typename T>
   requires(std::is_invocable_r_v<Ret, T, Args...> && !std::is_same_v<function_view, T>)
   constexpr function_view(T& functor) noexcept :
-    _data{static_cast<void*>(std::addressof(functor))}, _invoke_functor{&_invoke_for<T>} {}
+      _data{static_cast<void*>(std::addressof(functor))}, _invoke_functor{&_invoke_for<T>} {}
 
   template<typename T>
   requires(std::is_invocable_r_v<Ret, T, Args...> && !std::is_same_v<function_view, T>)
   constexpr function_view(T* functor) noexcept :
-    _data{static_cast<void*>(functor)}, _invoke_functor{&_invoke_for<T>} {}
+      _data{static_cast<void*>(functor)}, _invoke_functor{&_invoke_for<T>} {}
 
 public:
   constexpr ~function_view() noexcept = default;
@@ -87,7 +72,7 @@ public:
     return *this;
   }
 
-  constexpr function_view& operator=(Ret(*fun)(Args...)) noexcept {
+  constexpr function_view& operator=(Ret (*fun)(Args...)) noexcept {
     _data = nullptr;
     _invoke_ptr = fun;
     return *this;
@@ -106,104 +91,91 @@ public:
 
 public:
   constexpr bool is_empty() const { return !(_data && _invoke_functor) || _invoke_ptr == nullptr; }
+
   constexpr explicit operator bool() const { return !is_empty(); }
 
 private:
   void* _data;
+
   union {
-    Ret(*_invoke_functor)(void*, Args...);
-    Ret(*_invoke_ptr)(Args...);
+    Ret (*_invoke_functor)(void*, Args...);
+    Ret (*_invoke_ptr)(Args...);
   };
 };
 
 namespace impl {
 
-template<
-  typename Derived,
-  typename Ret,
-  size_t buff_sz, move_policy policy, size_t max_align,
-  bool is_noexcept, bool is_const,
-  typename... Args
->
+template<typename Derived, typename Ret, size_t buff_sz, move_policy policy, size_t max_align,
+         bool is_noexcept, bool is_const, typename... Args>
 class inplace_function_base : public inplace_nontrivial<Derived, buff_sz, policy, max_align> {
 private:
-  using base_t = inplace_nontrivial<
-    Derived,
-    // inplace_nontrivial<Derived, buff_sz, policy, max_align>,
-    buff_sz, policy, max_align
-  >;
+  using base_t = inplace_nontrivial<Derived,
+                                    // inplace_nontrivial<Derived, buff_sz, policy, max_align>,
+                                    buff_sz, policy, max_align>;
   friend base_t;
 
 protected:
   // clang whines if we set noexcept(is_noexcept) for some reason, gcc says its ok
-  using object_invoke_t =  std::conditional_t<is_const,
-    Ret(*)(const uint8*, Args...) /* noexcept(is_noexcept) */,
-    Ret(*)(uint8*, Args...) /* noexcept(is_noexcept) */
-  >;
-  using function_invoke_t = Ret(*)(Args...) noexcept(is_noexcept);
+  using object_invoke_t =
+    std::conditional_t<is_const, Ret (*)(const uint8*, Args...) /* noexcept(is_noexcept) */,
+                       Ret (*)(uint8*, Args...) /* noexcept(is_noexcept) */
+                       >;
+  using function_invoke_t = Ret (*)(Args...) noexcept(is_noexcept);
 
 private:
   template<typename T>
   static constexpr bool _is_functor =
     !std::same_as<std::decay_t<T>, function_invoke_t> &&
-    ((is_noexcept && is_const && meta::is_nothrow_const_invocable<Ret, std::decay_t<T>, Args...>)||
+    ((is_noexcept && is_const &&
+      meta::is_nothrow_const_invocable<Ret, std::decay_t<T>, Args...>) ||
      (!is_noexcept && is_const && meta::is_const_invocable<Ret, std::decay_t<T>, Args...>) ||
      (is_noexcept && !is_const && std::is_nothrow_invocable_r_v<Ret, std::decay_t<T>, Args...>) ||
      (!is_noexcept && !is_const && std::is_invocable_r_v<Ret, std::decay_t<T>, Args...>));
 
 public:
-  inplace_function_base() noexcept :
-    base_t{},
-    _fun_invoker{nullptr} {}
+  inplace_function_base() noexcept : base_t{}, _fun_invoker{nullptr} {}
 
   inplace_function_base(std::nullptr_t) noexcept :
-    base_t{},
-    _dispatcher{nullptr},
-    _fun_invoker{nullptr} {}
+      base_t{}, _dispatcher{nullptr}, _fun_invoker{nullptr} {}
 
   inplace_function_base(function_invoke_t func) noexcept :
-    base_t{},
-    _dispatcher{nullptr},
-    _fun_invoker{func} {}
+      base_t{}, _dispatcher{nullptr}, _fun_invoker{func} {}
 
   template<typename T, typename... CArgs>
-  inplace_function_base(std::in_place_type_t<T> tag, CArgs&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, CArgs...>)
-  requires(_is_functor<T> && base_t::template _can_store_type<T>) :
-    base_t{tag},
-    _dispatcher{&base_t::template _dispatcher_for<T>},
-    _object_invoker{&Derived::template _invoker_for<T>}
-  {
+  inplace_function_base(std::in_place_type_t<T> tag, CArgs&&... args) noexcept(
+    std::is_nothrow_constructible_v<std::decay_t<T>, CArgs...>)
+  requires(_is_functor<T> && base_t::template _can_store_type<T>)
+      :
+      base_t{tag}, _dispatcher{&base_t::template _dispatcher_for<T>},
+      _object_invoker{&Derived::template _invoker_for<T>} {
     base_t::template _construct<T>(std::forward<Args>(args)...);
   }
 
   template<typename T, typename U, typename... CArgs>
-  inplace_function_base(std::in_place_type_t<T> tag, std::initializer_list<U> il, CArgs&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, std::initializer_list<U>, CArgs...>)
-  requires(_is_functor<T> && base_t::template _can_store_type<T>) :
-    base_t{tag},
-    _dispatcher{&base_t::template _dispatcher_for<T>},
-    _object_invoker{&Derived::template _invoker_for<T>}
-  {
+  inplace_function_base(
+    std::in_place_type_t<T> tag, std::initializer_list<U> il,
+    CArgs&&... args) noexcept(std::is_nothrow_constructible_v<std::decay_t<T>,
+                                                              std::initializer_list<U>, CArgs...>)
+  requires(_is_functor<T> && base_t::template _can_store_type<T>)
+      :
+      base_t{tag}, _dispatcher{&base_t::template _dispatcher_for<T>},
+      _object_invoker{&Derived::template _invoker_for<T>} {
     base_t::template _construct<T>(il, std::forward<Args>(args)...);
   }
 
   template<typename T>
-  inplace_function_base(T&& obj)
-  noexcept(meta::is_nothrow_forward_constructible<T>)
-  requires(_is_functor<T> && base_t::template _can_store_type<T>) :
-    base_t{std::in_place_type_t<std::decay_t<T>>{}},
-    _dispatcher{&base_t::template _dispatcher_for<T>},
-    _object_invoker{&Derived::template _invoker_for<T>}
-  {
+  inplace_function_base(T&& obj) noexcept(meta::is_nothrow_forward_constructible<T>)
+  requires(_is_functor<T> && base_t::template _can_store_type<T>)
+      :
+      base_t{std::in_place_type_t<std::decay_t<T>>{}},
+      _dispatcher{&base_t::template _dispatcher_for<T>},
+      _object_invoker{&Derived::template _invoker_for<T>} {
     base_t::template _construct<T>(std::forward<T>(obj));
   }
 
   inplace_function_base(const inplace_function_base& other)
-  requires(base_t::_can_copy) :
-    base_t{other._type_id},
-    _dispatcher{other._dispatcher}
-  {
+  requires(base_t::_can_copy)
+      : base_t{other._type_id}, _dispatcher{other._dispatcher} {
     if (other._has_object()) {
       _object_invoker = other._object_invoker;
       base_t::_copy_from(other._storage);
@@ -213,10 +185,8 @@ public:
   }
 
   inplace_function_base(inplace_function_base&& other)
-  requires(base_t::_can_move) :
-    base_t{other._type_id},
-    _dispatcher{other._dispatcher}
-  {
+  requires(base_t::_can_move)
+      : base_t{other._type_id}, _dispatcher{other._dispatcher} {
     if (other._has_object()) {
       _object_invoker = other._object_invoker;
       base_t::_move_from(other._storage);
@@ -229,30 +199,30 @@ public:
 
 public:
   template<typename T, typename... CArgs>
-  std::decay_t<T>& emplace(CArgs&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, CArgs...>)
+  std::decay_t<T>&
+  emplace(CArgs&&... args) noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, CArgs...>)
   requires(_is_functor<T> && base_t::template _can_store_type<T>)
   {
     base_t::_destroy();
     _set_meta<T>();
     try {
       return base_t::template _construct<T>(std::forward<CArgs>(args)...);
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
   }
 
   template<typename T, typename U, typename... CArgs>
-  std::decay_t<T>& emplace(std::initializer_list<U> il, CArgs&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, std::initializer_list<U>, CArgs...>)
+  std::decay_t<T>& emplace(std::initializer_list<U> il, CArgs&&... args) noexcept(
+    std::is_nothrow_constructible_v<std::decay_t<T>, std::initializer_list<U>, CArgs...>)
   requires(_is_functor<T> && base_t::template _can_store_type<T>)
   {
     base_t::_destroy();
     _set_meta<T>();
     try {
       return base_t::template _construct<T>(il, std::forward<CArgs>(args)...);
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
@@ -266,7 +236,7 @@ public:
     _set_meta<T>();
     try {
       base_t::template _construct<T>(std::forward<T>(obj));
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
@@ -299,7 +269,7 @@ public:
       _set_meta(other);
       try {
         _copy_from(other._storage);
-      } catch(...) {
+      } catch (...) {
         _nullify();
         NTF_RETHROW();
       }
@@ -322,7 +292,7 @@ public:
       _set_meta(other);
       try {
         base_t::_move_from(other._storage);
-      } catch(...) {
+      } catch (...) {
         _nullify();
         NTF_RETHROW();
       }
@@ -358,6 +328,7 @@ private:
 
 protected:
   base_t::call_dispatcher_t _dispatcher;
+
   union {
     object_invoke_t _object_invoker;
     function_invoke_t _fun_invoker;
@@ -366,37 +337,21 @@ protected:
 
 } // namespace impl
 
-template<
-  typename Signature,
-  size_t buff_sz = sizeof(void*), // one pointer
-  move_policy policy = move_policy::copyable,
-  size_t max_align = alignof(std::max_align_t)
->
+template<typename Signature,
+         size_t buff_sz = sizeof(void*), // one pointer
+         move_policy policy = move_policy::copyable, size_t max_align = alignof(std::max_align_t)>
 class inplace_function;
 
-template<
-  typename Ret,
-  size_t buff_sz, move_policy policy, size_t max_align,
-  bool is_noexcept,
-  typename... Args
->
+template<typename Ret, size_t buff_sz, move_policy policy, size_t max_align, bool is_noexcept,
+         typename... Args>
 class inplace_function<Ret(Args...) noexcept(is_noexcept), buff_sz, policy, max_align> :
-  public impl::inplace_function_base<
-    inplace_function<Ret(Args...) noexcept(is_noexcept), buff_sz, policy, max_align>,
-    Ret,
-    buff_sz, policy, max_align,
-    is_noexcept, false,
-    Args...
-  >
-{
+    public impl::inplace_function_base<
+      inplace_function<Ret(Args...) noexcept(is_noexcept), buff_sz, policy, max_align>, Ret,
+      buff_sz, policy, max_align, is_noexcept, false, Args...> {
 private:
   using base_t = impl::inplace_function_base<
-    inplace_function<Ret(Args...) noexcept(is_noexcept), buff_sz, policy, max_align>,
-    Ret,
-    buff_sz, policy, max_align,
-    is_noexcept, false,
-    Args...
-  >;
+    inplace_function<Ret(Args...) noexcept(is_noexcept), buff_sz, policy, max_align>, Ret, buff_sz,
+    policy, max_align, is_noexcept, false, Args...>;
   friend base_t;
 
   template<typename T>
@@ -414,9 +369,7 @@ public:
   using base_t::base_t;
 
 public:
-  Ret operator()(Args... args)
-  noexcept(is_noexcept && NTF_ASSERT_NOEXCEPT)
-  {
+  Ret operator()(Args... args) noexcept(is_noexcept && NTF_ASSERT_NOEXCEPT) {
     if constexpr (std::is_void_v<Ret>) {
       if (!base_t::_has_object()) {
         NTF_ASSERT(this->_fun_invoker != nullptr, "Empty function");
@@ -435,29 +388,16 @@ public:
   }
 };
 
-template<
-  typename Ret,
-  size_t buff_sz, move_policy policy, size_t max_align,
-  bool is_noexcept,
-  typename... Args
->
+template<typename Ret, size_t buff_sz, move_policy policy, size_t max_align, bool is_noexcept,
+         typename... Args>
 class inplace_function<Ret(Args...) const noexcept(is_noexcept), buff_sz, policy, max_align> :
-  public impl::inplace_function_base<
-    inplace_function<Ret(Args...) const noexcept(is_noexcept), buff_sz, policy, max_align>,
-    Ret,
-    buff_sz, policy, max_align,
-    is_noexcept, true,
-    Args...
-  >
-{
+    public impl::inplace_function_base<
+      inplace_function<Ret(Args...) const noexcept(is_noexcept), buff_sz, policy, max_align>, Ret,
+      buff_sz, policy, max_align, is_noexcept, true, Args...> {
 private:
   using base_t = impl::inplace_function_base<
-    inplace_function<Ret(Args...) const noexcept(is_noexcept), buff_sz, policy, max_align>,
-    Ret,
-    buff_sz, policy, max_align,
-    is_noexcept, true,
-    Args...
-  >;
+    inplace_function<Ret(Args...) const noexcept(is_noexcept), buff_sz, policy, max_align>, Ret,
+    buff_sz, policy, max_align, is_noexcept, true, Args...>;
   friend base_t;
 
   template<typename T>
@@ -475,9 +415,7 @@ public:
   using base_t::base_t;
 
 public:
-  Ret operator()(Args... args) const
-  noexcept(is_noexcept && NTF_ASSERT_NOEXCEPT)
-  {
+  Ret operator()(Args... args) const noexcept(is_noexcept && NTF_ASSERT_NOEXCEPT) {
     if constexpr (std::is_void_v<Ret>) {
       if (!base_t::_has_object()) {
         NTF_ASSERT(this->_fun_invoker != nullptr, "Empty function");
