@@ -1,6 +1,8 @@
 #pragma once
 
+#include <iostream>
 #include <ntfstl/expected.hpp>
+#include <ntfstl/logger.hpp>
 #include <ntfstl/optional.hpp>
 #include <ntfstl/types.hpp>
 
@@ -70,6 +72,30 @@ public:
   sparse_set() noexcept :
       _sparse{}, _dense{}, _sparse_cap{}, _sparse_count{}, _dense_cap{}, _dense_count{} {}
 
+  sparse_set(std::initializer_list<std::pair<u32, T>> elems) : sparse_set() {
+    reserve(elems.size());
+    for (const auto& [pos, elem] : elems) {
+      emplace(pos, elem);
+    }
+  }
+
+  ~sparse_set() noexcept { reset(); }
+
+  sparse_set(sparse_set&& other) noexcept :
+      _sparse{std::move(other._sparse)}, _dense{std::move(other._dense)},
+      _sparse_cap{std::move(other._sparse_cap)}, _sparse_count{std::move(other._sparse_count)},
+      _dense_cap{std::move(other._dense_cap)}, _dense_count{std::move(other._dense_count)} {
+    other._sparse = nullptr;
+    other._sparse_count = 0u;
+    other._sparse_cap = 0u;
+    other._dense = nullptr;
+    other._dense_count = 0u;
+    other._dense_cap = 0u;
+  }
+
+  // TODO: Define copy constructor
+  sparse_set(const sparse_set& other) = delete;
+
 public:
   template<typename U>
   T& push(element_id elem, U&& obj) {
@@ -79,16 +105,9 @@ public:
   template<typename... Args>
   T& emplace(element_id elem, Args&&... args) {
     const auto [page, page_idx] = _sparse_pos(elem);
-    if (page >= _sparse_cap) {
-      _grow_sparse(page);
-    }
+    u32* sparse_page = _get_or_alloc_page(page);
 
-    auto& sparse_page = _sparse[page];
-    if (sparse_page == nullptr) {
-      sparse_page = alloc_t::alloc_page(PAGE_SIZE);
-    }
-
-    u32 idx = _sparse[page][page_idx];
+    u32& idx = sparse_page[page_idx];
     if (idx != ELEM_TOMB) {
       std::destroy_at(_dense + idx);
       return _construct(idx, std::forward<Args>(args)...);
@@ -96,7 +115,9 @@ public:
 
     idx = _dense_count;
     if (idx == _dense_cap) {
-      _grow_dense();
+      const u32 new_cap =
+        _dense_cap ? static_cast<u32>(std::round(DENSE_GROW_FAC * _dense_cap)) : 2;
+      _grow_dense(new_cap);
     }
 
     auto& ret = _construct(idx, std::forward<Args>(args)...);
@@ -104,40 +125,60 @@ public:
     return ret;
   }
 
+  void reserve(u32 count) {
+    if (!count || count <= _dense_cap) {
+      return;
+    }
+    _grow_dense(count);
+  }
+
   void erase(element_id elem) {}
 
   void reset() {
-    if constexpr (!std::is_trivially_destructible_v<T>) {
-      for (u32 i = 0; i < _dense_count; ++i) {
-        std::destroy_at(_dense + i);
+    if (_dense) {
+      NTF_ASSERT(_dense_cap > 0);
+      if constexpr (!std::is_trivially_destructible_v<T>) {
+        for (u32 i = 0; i < _dense_count; ++i) {
+          std::destroy_at(_dense + i);
+        }
       }
+      alloc_t::dealloc_elem(_dense, _dense_cap);
+      _dense_cap = 0u;
+      _dense_count = 0u;
+      _dense = nullptr;
     }
-    _dense_count = 0u;
 
-    alloc_t::dealloc_elem(_dense, _dense_cap);
-    _dense_cap = 0u;
-
-    for (u32 i = 0; i < _sparse_cap; ++i) {
-      if (_sparse[i] != nullptr) {
-        alloc_t::dealloc_page(_sparse[i], PAGE_SIZE);
-        ++_sparse_count;
+    if (_sparse) {
+      NTF_ASSERT(_sparse_cap > 0);
+      for (u32 i = 0; i < _sparse_cap; ++i) {
+        if (_sparse[i] != nullptr) {
+          alloc_t::dealloc_page(_sparse[i], PAGE_SIZE);
+        }
       }
+      alloc_t::dealloc_sparse(_sparse, _sparse_cap);
+      _sparse_cap = 0u;
+      _sparse_count = 0u;
+      _sparse = nullptr;
     }
-    alloc_t::dealloc_sparse(_sparse, _sparse_cap);
-    _sparse_cap = 0u;
-    _sparse_count = 0u;
   }
 
   void clear() {
-    if constexpr (!std::is_trivially_destructible_v<T>) {
-      for (u32 i = 0; i < _dense_count; ++i) {
-        std::destroy_at(_dense + i);
+    if (_dense) {
+      if constexpr (!std::is_trivially_destructible_v<T>) {
+        for (u32 i = 0; i < _dense_count; ++i) {
+          std::destroy_at(_dense + i);
+        }
       }
+      _dense_count = 0u;
     }
-    _dense_count = 0u;
 
-    for (u32 i = 0; i < _sparse_cap; ++i) {
-      std::memset(_sparse + i, 0xFF, sizeof(*_sparse));
+    if (_sparse) {
+      for (u32 i = 0; i < _sparse_cap; ++i) {
+        if (_sparse[i] != nullptr) {
+          std::memset(_sparse[i], 0xFF, PAGE_SIZE * sizeof(**_sparse));
+        }
+      }
+      _sparse_count = 0u;
     }
   }
 
@@ -203,6 +244,29 @@ public:
     return _dense[idx];
   }
 
+  sparse_set& operator=(sparse_set&& other) noexcept {
+    reset();
+
+    _dense = std::move(other._dense);
+    _dense_count = std::move(other._dense_count);
+    _dense_cap = std::move(other._dense_cap);
+    _sparse = std::move(other._sparse);
+    _sparse_cap = std::move(other._sparse_cap);
+    _sparse_count = std::move(other._sparse_count);
+
+    other._dense = nullptr;
+    other._dense_count = 0u;
+    other._dense_cap = 0u;
+    other._sparse = nullptr;
+    other._sparse_count = 0u;
+    other._sparse_cap = 0u;
+
+    return *this;
+  }
+
+  // TODO: Define copy assignment
+  sparse_set& operator=(const sparse_set& other) = delete;
+
 public:
   iterator begin() noexcept { return _dense; }
 
@@ -228,34 +292,35 @@ public:
 
   bool has_element(element_id elem) const noexcept {
     const auto [page, page_idx] = _sparse_pos(elem);
-    if (page >= _sparse_cap) {
+    if (!_sparse || page > _sparse_cap) {
       return false;
     }
-    const u32* sparse_page = _sparse[page];
-    if (sparse_page == nullptr) {
-      return false;
-    }
-
-    return sparse_page[page_idx] != ELEM_TOMB;
+    return _sparse[page] != nullptr && _sparse[page][page_idx] != ELEM_TOMB;
   }
 
 private:
-  void _grow_sparse(u32 page_count) {
-    NTF_ASSERT(page_count < _sparse_cap);
-    u32** new_sparse = alloc_t::alloc_sparse(page_count);
-    std::memcpy(new_sparse, _sparse, _sparse_cap * sizeof(*_sparse));
-    alloc_t::dealloc_sparse(_sparse, _sparse_cap);
-    _sparse = new_sparse;
-    _sparse_cap = page_count;
+  u32* _get_or_alloc_page(u32 page_idx) {
+    if (page_idx + 1 >= _sparse_cap) {
+      u32** new_sparse = alloc_t::alloc_sparse(page_idx + 1);
+      if (_sparse) {
+        std::memcpy(new_sparse, _sparse, _sparse_cap * sizeof(*_sparse));
+        alloc_t::dealloc_sparse(_sparse, _sparse_cap);
+      }
+      _sparse = new_sparse;
+      _sparse_cap = page_idx + 1;
+    }
+
+    auto& sparse_page = _sparse[page_idx];
+    if (sparse_page == nullptr) {
+      sparse_page = alloc_t::alloc_page(PAGE_SIZE);
+      _sparse_count++;
+    }
+    return sparse_page;
   }
 
-  void _grow_dense() {
-    T* new_dense = nullptr;
-    const u32 new_cap = static_cast<u32>(std::round(DENSE_GROW_FAC * _dense_cap));
-
-    try {
-      new_dense = alloc_t::alloc_elem(new_cap);
-
+  void _grow_dense(u32 count) {
+    NTF_ASSERT(count > _dense_cap);
+    const auto move_elems = [&](T* new_dense) {
       if constexpr (std::is_trivially_copyable_v<T>) {
         std::memcpy(new_dense, _dense, _dense_count * sizeof(*_dense));
       } else {
@@ -272,12 +337,19 @@ private:
           std::destroy_at(_dense + i);
         }
       }
+    };
 
-      _dense = new_dense;
-      _dense_cap = new_cap;
+    T* elems = nullptr;
+    try {
+      elems = alloc_t::alloc_elem(count);
+      if (_dense) {
+        move_elems(elems);
+      }
+      _dense = elems;
+      _dense_cap = count;
     } catch (...) {
-      if (new_dense) {
-        alloc_t::dealloc_elem(new_dense, new_cap);
+      if (elems) {
+        alloc_t::dealloc_elem(elems, count);
       }
       NTF_RETHROW();
     }
