@@ -109,9 +109,14 @@ public:
   template<typename U, size_t N>
   explicit(extent != dynamic_extent &&
            N == dynamic_extent) constexpr span(const span<U, N>& src) noexcept
-  requires(std::is_convertible_v<U (*)[], element_type (*)[]> &&
+  requires(N != extent && std::is_convertible_v<U (*)[], element_type (*)[]> &&
            (extent == dynamic_extent || N == dynamic_extent || extent == N))
       : impl::span_extent<SpanExtent>{N}, _data{src.data()} {}
+
+  template<typename U>
+  constexpr span(const span<U, dynamic_extent>& src) noexcept
+  requires(std::is_convertible_v<U (*)[], element_type (*)[]> && extent == dynamic_extent)
+      : impl::span_extent<dynamic_extent>{src.size()}, _data{src.data()} {}
 
   constexpr span(const span&) noexcept = default;
   constexpr span(span&&) noexcept = default;
