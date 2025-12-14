@@ -5,7 +5,6 @@
 using namespace ntf::numdefs;
 
 // TODO: test freelist::sort()
-// TODO: test move semantics
 
 namespace {
 
@@ -15,14 +14,11 @@ struct lifetime_tracker {
 
   lifetime_tracker(int v) : value(v) { alive_count++; }
 
-  lifetime_tracker(const lifetime_tracker& other) : value(other.value) { alive_count++; }
+  lifetime_tracker(const lifetime_tracker& other) noexcept : value(other.value) { alive_count++; }
 
   lifetime_tracker(lifetime_tracker&& other) noexcept : value(other.value) { alive_count++; }
 
-  ~lifetime_tracker() {
-    fmt::print("destroyed {}\n", alive_count);
-    alive_count--;
-  }
+  ~lifetime_tracker() noexcept { alive_count--; }
 
   lifetime_tracker& operator=(const lifetime_tracker&) = default;
   lifetime_tracker& operator=(lifetime_tracker&&) = default;
@@ -83,6 +79,8 @@ TEST_CASE("dynamic freelist construction", "[freelist]") {
     REQUIRE(list.size() == 0u);
     REQUIRE(list.begin() == list.end());
     REQUIRE(list.cbegin() == list.cend());
+    REQUIRE_THROWS(list.front());
+    REQUIRE_THROWS(list.back());
   }
   SECTION("initializer_list freelist and range for loop") {
     ntf::freelist<int> list{1, 2, 3, 4};
@@ -90,6 +88,8 @@ TEST_CASE("dynamic freelist construction", "[freelist]") {
     REQUIRE(list.size() == 4u);
     REQUIRE_FALSE(list.begin() == list.end());
     REQUIRE_FALSE(list.cbegin() == list.cend());
+    REQUIRE_NOTHROW(list.front() == 1u);
+    REQUIRE_NOTHROW(list.back() == 4u);
 
     std::vector<int> vals;
     for (const auto& [elem, _] : list) {
@@ -169,22 +169,66 @@ TEST_CASE("dynamic freelist manages lifetime properly", "[freelist]") {
 
     SECTION("remove_where properly removes things") {
       list.remove_where([](const lifetime_tracker& item) { return item.value > 15; });
-      REQUIRE(list.size() == 1u);
+      REQUIRE(list.is_valid(h1));
+      REQUIRE(list.is_valid(h2));
+      REQUIRE_FALSE(list.is_valid(h3));
+      REQUIRE_FALSE(list.is_valid(h4));
+      REQUIRE(list.size() == 2u);
+      REQUIRE_NOTHROW(list.at(h1).value == 0);
       REQUIRE_NOTHROW(list.at(h2).value == 10);
-      REQUIRE(lifetime_tracker::alive_count == 1u);
+      REQUIRE(lifetime_tracker::alive_count == 2u);
     }
 
     SECTION("clear() destroys all items") {
       list.clear();
       REQUIRE(list.empty());
       REQUIRE(lifetime_tracker::alive_count == 0u);
-    }
 
-    auto h5 = list.emplace(0);
-    REQUIRE(list.size() == 1u);
-    REQUIRE(lifetime_tracker::alive_count == 1u);
+      auto h5 = list.emplace(40);
+      REQUIRE(list.size() == 1u);
+      REQUIRE(h5.index() == 3u);
+      REQUIRE(h5.version() == 1u);
+      REQUIRE(list.is_valid(h5));
+      REQUIRE(lifetime_tracker::alive_count == 1u);
+    }
   }
   REQUIRE(lifetime_tracker::alive_count == 0u);
+}
+
+TEST_CASE("static freelist construction", "[freelist]") {
+  SECTION("empty freelist") {
+    ntf::freelist<int, 4u> list;
+    REQUIRE(list.empty());
+    REQUIRE(list.size() == 0u);
+    REQUIRE(list.begin() == list.end());
+    REQUIRE(list.cbegin() == list.cend());
+    REQUIRE(list.capacity() == 4u);
+    REQUIRE_THROWS(list.front());
+    REQUIRE_THROWS(list.back());
+  }
+  SECTION("initializer_list freelist and range for loop") {
+    ntf::freelist<int, 4u> list{1, 2, 3, 4};
+    REQUIRE_FALSE(list.empty());
+    REQUIRE(list.size() == 4u);
+    REQUIRE_FALSE(list.begin() == list.end());
+    REQUIRE_FALSE(list.cbegin() == list.cend());
+    REQUIRE_NOTHROW(list.front() == 1u);
+    REQUIRE_NOTHROW(list.back() == 4u);
+
+    std::vector<int> vals;
+    for (const auto& [elem, _] : list) {
+      vals.emplace_back(elem);
+    }
+
+    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(1));
+    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(2));
+    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(3));
+    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(4));
+    REQUIRE(vals.size() == 4u);
+  }
+  SECTION("out of range initializer_list throws") {
+    REQUIRE_THROWS(ntf::freelist<int, 2u>{1, 2, 3, 4});
+  }
 }
 
 TEST_CASE("static freelist capacity limit", "[freelist]") {
@@ -218,7 +262,7 @@ TEST_CASE("static freelist capacity limit", "[freelist]") {
   }
 }
 
-TEST_CASE("freelist edge cases", "[freelist]") {
+TEST_CASE("freelist invalid access", "[freelist]") {
   ntf::freelist<int> empty_list;
   ntf::freelist_handle invalid;
   auto removed = empty_list.emplace(100);
@@ -236,30 +280,126 @@ TEST_CASE("freelist edge cases", "[freelist]") {
     REQUIRE_NOTHROW(empty_list.remove(invalid));
   }
 
-  SECTION("static list truncates initializer list") {
-    ntf::freelist<int, 2u> list{1, 2, 3, 4};
-    REQUIRE(list.size() == 2u);
-    REQUIRE(list.capacity() == 2u);
+  SECTION("access invalid front & back") {
+    REQUIRE_THROWS(empty_list.front());
+    REQUIRE_THROWS(empty_list.back());
+  }
+}
 
-    std::vector<int> vals;
-    for (const auto& [elem, _] : list) {
-      vals.emplace_back(elem);
-    }
-    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(1));
-    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(2));
-    REQUIRE(vals.size() == 2u);
+TEST_CASE("freelist find()", "[freelist]") {
+  ntf::freelist<int> list{1, 2, 3, 4};
+
+  auto h1 = list.find([](int item) { return item == 1; });
+  REQUIRE(h1.has_value());
+  REQUIRE_FALSE(h1->empty());
+  REQUIRE(h1->index() == 0u);
+  REQUIRE_NOTHROW(list.at(*h1) == 1);
+
+  auto h2 = list.find([](int item) { return item == 5; });
+  REQUIRE_FALSE(h2.has_value());
+}
+
+TEST_CASE("freelist move semantics", "[freelist]") {
+  lifetime_tracker::alive_count = 0u;
+
+  SECTION("copy construction") {
+    ntf::freelist<lifetime_tracker> original;
+    auto h1 = original.emplace(10);
+    auto h2 = original.emplace(20);
+    NTF_UNUSED(h2);
+    REQUIRE(lifetime_tracker::alive_count == 2);
+
+    ntf::freelist<lifetime_tracker> copy(original);
+    REQUIRE(copy.size() == 2);
+    REQUIRE(original.size() == 2);
+    REQUIRE(lifetime_tracker::alive_count == 4);
+
+    copy.remove(h1);
+    REQUIRE(copy.size() == 1);
+    REQUIRE(original.size() == 2);
+    REQUIRE(original.is_valid(h1));
+    REQUIRE(lifetime_tracker::alive_count == 3);
   }
 
-  SECTION("use of freelist::find()") {
-    ntf::freelist<int> list{1, 2, 3, 4};
+  SECTION("copy assignment") {
+    ntf::freelist<lifetime_tracker> original;
+    auto h1 = original.emplace(100);
+    auto h2 = original.emplace(200);
+    NTF_UNUSED(h1);
+    NTF_UNUSED(h2);
 
-    auto h1 = list.find([](int item) { return item == 1; });
-    REQUIRE(h1.has_value());
-    REQUIRE_FALSE(h1->empty());
-    REQUIRE(h1->index() == 0u);
-    REQUIRE_NOTHROW(list.at(*h1) == 1);
+    ntf::freelist<lifetime_tracker> target;
+    auto h3 = target.emplace(999);
+    NTF_UNUSED(h3);
 
-    auto h2 = list.find([](int item) { return item == 5; });
-    REQUIRE_FALSE(h2.has_value());
+    REQUIRE(lifetime_tracker::alive_count == 3);
+
+    target = original;
+    REQUIRE(lifetime_tracker::alive_count == 4);
+    REQUIRE(target.size() == 2);
+
+    auto it = target.begin();
+    REQUIRE(it->first.value == 100);
+  }
+
+  SECTION("move constructor") {
+    ntf::freelist<lifetime_tracker> source;
+    auto h1 = source.emplace(10);
+    auto h2 = source.emplace(20);
+    NTF_UNUSED(h2);
+    REQUIRE(lifetime_tracker::alive_count == 2);
+
+    const lifetime_tracker* original_ptr = &source[h1];
+    ntf::freelist<lifetime_tracker> destination(std::move(source));
+    REQUIRE(lifetime_tracker::alive_count == 2);
+    REQUIRE(destination.size() == 2);
+    REQUIRE(source.empty());
+    REQUIRE(source.size() == 0);
+
+    const lifetime_tracker* new_ptr = &destination[h1];
+    REQUIRE(new_ptr == original_ptr);
+  }
+
+  SECTION("move assignment") {
+    ntf::freelist<lifetime_tracker> source;
+    auto h1 = source.emplace(10);
+    auto h2 = source.emplace(20);
+    NTF_UNUSED(h1);
+    NTF_UNUSED(h2);
+
+    ntf::freelist<lifetime_tracker> destination;
+    auto h3 = destination.emplace(999);
+    NTF_UNUSED(h3);
+    REQUIRE(lifetime_tracker::alive_count == 3);
+
+    destination = std::move(source);
+    REQUIRE(lifetime_tracker::alive_count == 2);
+    REQUIRE(destination.size() == 2);
+    REQUIRE(source.empty());
+
+    auto it = destination.begin();
+    REQUIRE(it->first.value == 10);
+  }
+
+  SECTION("self-assignment check") {
+    ntf::freelist<lifetime_tracker> list;
+    auto h1 = list.emplace(1);
+    NTF_UNUSED(h1);
+    const u32 count_before = lifetime_tracker::alive_count;
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wself-assign"
+    list = list;
+#pragma GCC diagnostic pop
+    REQUIRE(list.size() == 1);
+    REQUIRE(lifetime_tracker::alive_count == count_before);
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wself-move"
+    list = std::move(list);
+#pragma GCC diagnostic pop
+
+    REQUIRE(list.size() == 1);
+    REQUIRE(lifetime_tracker::alive_count == count_before);
   }
 }

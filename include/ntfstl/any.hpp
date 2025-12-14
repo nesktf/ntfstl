@@ -4,7 +4,6 @@
 
 namespace ntf {
 
-#if defined(NTF_ENABLE_EXCEPTIONS) && NTF_ENABLE_EXCEPTIONS
 class bad_any_access : public std::exception {
 public:
   bad_any_access() noexcept = default;
@@ -16,12 +15,11 @@ public:
 public:
   const char* what() const noexcept override { return "bad_any_access"; }
 };
-#endif
 
 enum class move_policy : uint8 {
   non_movable = 0,
-  movable     = 1,
-  copyable    = 2,
+  movable = 1,
+  copyable = 2,
 };
 
 constexpr inline bool check_policy(move_policy src, move_policy dst) {
@@ -37,8 +35,7 @@ class inplace_storage {
 protected:
   template<typename T>
   static constexpr bool is_storable =
-    (sizeof(std::decay_t<T>) <= buff_sz) &&
-    (alignof(std::decay_t<T>) <= max_align) &&
+    (sizeof(std::decay_t<T>) <= buff_sz) && (alignof(std::decay_t<T>) <= max_align) &&
     (max_align % alignof(std::decay_t<T>) == 0);
 
 protected:
@@ -48,20 +45,17 @@ protected:
   }
 
 protected:
-  inplace_storage() noexcept :
-    _type_id{meta::NULL_TYPE_ID} {}
+  inplace_storage() noexcept : _type_id{meta::NULL_TYPE_ID} {}
 
-  inplace_storage(meta::type_id_t id) noexcept :
-    _type_id{id} {}
+  inplace_storage(meta::type_id_t id) noexcept : _type_id{id} {}
 
   template<typename T>
-  inplace_storage(std::in_place_type_t<T>) noexcept :
-    _type_id{_id_from<T>()} {}
+  inplace_storage(std::in_place_type_t<T>) noexcept : _type_id{_id_from<T>()} {}
 
 protected:
   template<typename T, typename... Args>
-  std::decay_t<T>& _construct(Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, Args...>)
+  std::decay_t<T>&
+  _construct(Args&&... args) noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, Args...>)
   requires(is_storable<T>)
   {
     new (_storage) std::decay_t<T>(std::forward<Args>(args)...);
@@ -82,7 +76,9 @@ public:
   }
 
   template<typename T>
-  bool has_type() const noexcept { return _id_from<T>() == _type_id; }
+  bool has_type() const noexcept {
+    return _id_from<T>() == _type_id;
+  }
 
   meta::type_id_t type_id() const noexcept { return _type_id; }
 
@@ -91,13 +87,19 @@ protected:
 
 public:
   template<typename T>
-  explicit operator const T&() const& { return get<T>(); }
+  explicit operator const T&() const& {
+    return get<T>();
+  }
 
   template<typename T>
-  explicit operator T&() & { return get<T>(); }
+  explicit operator T&() & {
+    return get<T>();
+  }
 
   template<typename T>
-  explicit operator T&&() && { return std::move(get<T>()); }
+  explicit operator T&&() && {
+    return std::move(get<T>());
+  }
 
 protected:
   alignas(max_align) uint8 _storage[buff_sz];
@@ -112,55 +114,48 @@ private:
   using base_t = impl::inplace_storage<buff_sz, max_align>;
 
   template<typename T>
-  static constexpr bool _can_store = 
-    !std::same_as<inplace_trivial, std::decay_t<T>> &&
-    std::is_trivial_v<std::decay_t<T>> &&
+  static constexpr bool _can_store =
+    !std::same_as<inplace_trivial, std::decay_t<T>> && std::is_trivial_v<std::decay_t<T>> &&
     base_t::template is_storable<T>;
 
 public:
-  inplace_trivial() noexcept :
-    base_t{} {}
+  inplace_trivial() noexcept : base_t{} {}
 
-  inplace_trivial(std::nullptr_t) noexcept :
-    inplace_trivial{} {}
+  inplace_trivial(std::nullptr_t) noexcept : inplace_trivial{} {}
 
   template<typename T, typename... Args>
-  inplace_trivial(std::in_place_type_t<T> tag, Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, Args...>)
-  requires(_can_store<T>) :
-    base_t{tag}
-  {
+  inplace_trivial(std::in_place_type_t<T> tag, Args&&... args) noexcept(
+    std::is_nothrow_constructible_v<std::decay_t<T>, Args...>)
+  requires(_can_store<T>)
+      : base_t{tag} {
     base_t::template _construct<T>(std::forward<Args>(args)...);
   }
 
   template<typename T, typename U, typename... Args>
-  inplace_trivial(std::in_place_type_t<T> tag, std::initializer_list<U> il, Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, std::initializer_list<U>, Args...>)
-  requires(_can_store<T>) :
-    base_t{tag}
-  {
+  inplace_trivial(
+    std::in_place_type_t<T> tag, std::initializer_list<U> il,
+    Args&&... args) noexcept(std::is_nothrow_constructible_v<std::decay_t<T>,
+                                                             std::initializer_list<U>, Args...>)
+  requires(_can_store<T>)
+      : base_t{tag} {
     base_t::template _construct<T>(il, std::forward<Args>(args)...);
   }
 
   template<typename T>
-  inplace_trivial(T&& obj)
-  noexcept(meta::is_nothrow_forward_constructible<T>)
-  requires(_can_store<T>) :
-    base_t{std::in_place_type_t<std::decay_t<T>>{}}
-  {
+  inplace_trivial(T&& obj) noexcept(meta::is_nothrow_forward_constructible<T>)
+  requires(_can_store<T>)
+      : base_t{std::in_place_type_t<std::decay_t<T>>{}} {
     base_t::template _construct<T>(std::forward<T>(obj));
   }
 
-  inplace_trivial(const inplace_trivial& other) noexcept :
-    base_t{other._type_id}
-  {
+  inplace_trivial(const inplace_trivial& other) noexcept : base_t{other._type_id} {
     _copy_from(other._storage);
   }
 
 public:
   template<typename T, typename... Args>
-  std::decay_t<T>& emplace(Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, Args...>)
+  std::decay_t<T>&
+  emplace(Args&&... args) noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, Args...>)
   requires(_can_store<T>)
   {
     this->_type_id = base_t::template _id_from<T>();
@@ -168,8 +163,8 @@ public:
   }
 
   template<typename T, typename U, typename... Args>
-  std::decay_t<T>& emplace(std::initializer_list<U> il, Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, std::initializer_list<U>, Args...>)
+  std::decay_t<T>& emplace(std::initializer_list<U> il, Args&&... args) noexcept(
+    std::is_nothrow_constructible_v<std::decay_t<T>, std::initializer_list<U>, Args...>)
   requires(_can_store<T>)
   {
     this->_type_id = base_t::template _id_from<T>();
@@ -178,8 +173,7 @@ public:
 
 public:
   template<typename T>
-  inplace_trivial& operator=(T&& obj)
-  noexcept(meta::is_nothrow_forward_constructible<T>)
+  inplace_trivial& operator=(T&& obj) noexcept(meta::is_nothrow_forward_constructible<T>)
   requires(_can_store<T>)
   {
     this->_type_id = base_t::template _id_from<T>();
@@ -219,17 +213,14 @@ protected:
   static constexpr bool _can_move = check_policy(policy, move_policy::movable);
 
   template<typename T>
-  static constexpr bool _can_move_type =
-    std::copy_constructible<std::decay_t<T>> && _can_move;
+  static constexpr bool _can_move_type = std::copy_constructible<std::decay_t<T>> && _can_move;
 
   template<typename T>
-  static constexpr bool _can_copy_type =
-    std::move_constructible<std::decay_t<T>> && _can_copy;
+  static constexpr bool _can_copy_type = std::move_constructible<std::decay_t<T>> && _can_copy;
 
   template<typename T>
-  static constexpr bool _can_forward_type =
-    (std::is_rvalue_reference_v<T> && _can_move_type<T>) ||
-    (std::is_lvalue_reference_v<T> && _can_copy_type<T>);
+  static constexpr bool _can_forward_type = (std::is_rvalue_reference_v<T> && _can_move_type<T>) ||
+                                            (std::is_lvalue_reference_v<T> && _can_copy_type<T>);
 
   template<typename T>
   static constexpr bool _can_store_type =
@@ -241,11 +232,11 @@ protected:
   static constexpr uint8 CALL_COPY_CONSTRUCT = 1;
   static constexpr uint8 CALL_MOVE_CONSTRUCT = 2;
 
-  using call_dispatcher_t = void(*)(uint8*, uint8, uint8*, const uint8*);
+  using call_dispatcher_t = void (*)(uint8*, uint8, uint8*, const uint8*);
 
   template<typename T>
-  static void _dispatcher_for(uint8* buffer, uint8 call,
-                              uint8* move_other, const uint8* copy_other) {
+  static void _dispatcher_for(uint8* buffer, uint8 call, uint8* move_other,
+                              const uint8* copy_other) {
     using decayed_t = std::decay_t<T>;
     auto* obj = std::launder(reinterpret_cast<decayed_t*>(buffer));
     switch (call) {
@@ -271,7 +262,8 @@ protected:
         }
         break;
       }
-      default: NTF_UNREACHABLE();
+      default:
+        NTF_UNREACHABLE();
     }
   }
 
@@ -298,76 +290,55 @@ protected:
 
 } // namespace impl
 
-
-template<
-  size_t buff_sz,
-  move_policy policy = move_policy::copyable,
-  size_t max_align = alignof(std::max_align_t)
->
-class inplace_any
-  : public impl::inplace_nontrivial<
-    inplace_any<buff_sz, policy, max_align>,
-    buff_sz, policy, max_align
-  >
-{
+template<size_t buff_sz, move_policy policy = move_policy::copyable,
+         size_t max_align = alignof(std::max_align_t)>
+class inplace_any :
+    public impl::inplace_nontrivial<inplace_any<buff_sz, policy, max_align>, buff_sz, policy,
+                                    max_align> {
 private:
   using base_t =
     impl::inplace_nontrivial<inplace_any<buff_sz, policy, max_align>, buff_sz, policy, max_align>;
   friend base_t;
 
 public:
-  inplace_any() noexcept :
-    base_t{},
-    _dispatcher{nullptr} {}
+  inplace_any() noexcept : base_t{}, _dispatcher{nullptr} {}
 
-  inplace_any(std::nullptr_t) noexcept :
-    inplace_any{} {}
+  inplace_any(std::nullptr_t) noexcept : inplace_any{} {}
 
   template<typename T, typename... Args>
-  inplace_any(std::in_place_type_t<T> tag, Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, Args...>)
-  requires(base_t::template _can_store_type<T>) :
-    base_t{tag},
-    _dispatcher{&base_t::template _dispatcher_for<T>}
-  {
+  inplace_any(std::in_place_type_t<T> tag,
+              Args&&... args) noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, Args...>)
+  requires(base_t::template _can_store_type<T>)
+      : base_t{tag}, _dispatcher{&base_t::template _dispatcher_for<T>} {
     base_t::template _construct<T>(std::forward<Args>(args)...);
   }
 
   template<typename T, typename U, typename... Args>
-  inplace_any(std::in_place_type_t<T> tag, std::initializer_list<U> il, Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, std::initializer_list<U>, Args...>)
-  requires(base_t::template _can_store_type<T>) :
-    base_t{tag},
-    _dispatcher{&base_t::template _dispatcher_for<T>}
-  {
+  inplace_any(std::in_place_type_t<T> tag, std::initializer_list<U> il, Args&&... args) noexcept(
+    std::is_nothrow_constructible_v<std::decay_t<T>, std::initializer_list<U>, Args...>)
+  requires(base_t::template _can_store_type<T>)
+      : base_t{tag}, _dispatcher{&base_t::template _dispatcher_for<T>} {
     base_t::template _construct<T>(il, std::forward<Args>(args)...);
   }
 
   template<typename T>
-  inplace_any(T&& obj)
-  noexcept(meta::is_nothrow_forward_constructible<T>)
-  requires(base_t::template _can_store_type<T> && base_t::template _can_forward_type<T>) :
-    base_t{std::in_place_type_t<T>{}},
-    _dispatcher{&base_t::template _dispatcher_for<T>}
-  {
+  inplace_any(T&& obj) noexcept(meta::is_nothrow_forward_constructible<T>)
+  requires(base_t::template _can_store_type<T> && base_t::template _can_forward_type<T>)
+      : base_t{std::in_place_type_t<T>{}}, _dispatcher{&base_t::template _dispatcher_for<T>} {
     base_t::template _construct<T>(std::forward<T>(obj));
   }
 
   inplace_any(const inplace_any& other)
-  requires(base_t::_can_copy) :
-    base_t{other._type_id},
-    _dispatcher{other._dispatcher}
-  {
+  requires(base_t::_can_copy)
+      : base_t{other._type_id}, _dispatcher{other._dispatcher} {
     if (!other.empty()) {
       base_t::_copy_from(other._storage);
     }
   }
 
   inplace_any(inplace_any&& other)
-  requires(base_t::_can_move) :
-    base_t{other._type_id},
-    _dispatcher{other._dispatcher}
-  {
+  requires(base_t::_can_move)
+      : base_t{other._type_id}, _dispatcher{other._dispatcher} {
     if (!other.empty()) {
       base_t::_move_from(other._storage);
     }
@@ -377,45 +348,44 @@ public:
 
 public:
   template<typename T, typename... Args>
-  std::decay_t<T>& emplace(Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, Args...>)
+  std::decay_t<T>&
+  emplace(Args&&... args) noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, Args...>)
   requires(base_t::template _can_store_type<T>)
   {
     base_t::_destroy();
     _set_meta<T>();
     try {
       return base_t::template _construct<T>(std::forward<Args>(args)...);
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
-  } 
+  }
 
   template<typename T, typename U, typename... Args>
-  std::decay_t<T>& emplace(std::initializer_list<U> il, Args&&... args)
-  noexcept(std::is_nothrow_constructible_v<std::decay_t<T>, std::initializer_list<U>, Args...>)
+  std::decay_t<T>& emplace(std::initializer_list<U> il, Args&&... args) noexcept(
+    std::is_nothrow_constructible_v<std::decay_t<T>, std::initializer_list<U>, Args...>)
   requires(base_t::template _can_store_type<T>)
   {
     base_t::_destroy();
     _set_meta<T>();
     try {
       return base_t::template _construct<T>(il, std::forward<Args>(args)...);
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
-  } 
+  }
 
   template<typename T>
-  inplace_any& operator=(T&& obj)
-  noexcept(meta::is_nothrow_forward_constructible<T>)
+  inplace_any& operator=(T&& obj) noexcept(meta::is_nothrow_forward_constructible<T>)
   requires(base_t::template _can_store_type<T>)
   {
     base_t::_destroy();
     _set_meta<T>();
     try {
       base_t::template _construct<T>(std::forward<T>(obj));
-    } catch(...) {
+    } catch (...) {
       _nullify();
       NTF_RETHROW();
     }
@@ -435,7 +405,7 @@ public:
     if (!other.empty()) {
       try {
         base_t::_copy_from(other._storage);
-      } catch(...) {
+      } catch (...) {
         _nullify();
         NTF_RETHROW();
       }
@@ -457,7 +427,7 @@ public:
     if (!other.empty()) {
       try {
         base_t::_move_from(other._storage);
-      } catch(...) {
+      } catch (...) {
         _nullify();
         NTF_RETHROW();
       }
@@ -479,7 +449,7 @@ private:
     _dispatcher = other._dispatcher;
     this->_type_id = other._type_id;
   }
-  
+
   template<typename T>
   void _set_meta() noexcept {
     _dispatcher = &base_t::template _dispatcher_for<T>;

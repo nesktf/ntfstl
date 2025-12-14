@@ -7,7 +7,6 @@
 
 namespace ntf {
 
-#if defined(NTF_ENABLE_EXCEPTIONS) && NTF_ENABLE_EXCEPTIONS
 class bad_optional_access : public std::exception {
 public:
   bad_optional_access() = default;
@@ -15,7 +14,6 @@ public:
 public:
   const char* what() const noexcept override { return "bad_optional_access"; }
 };
-#endif
 
 using nullopt_t = std::nullopt_t;
 constexpr nullopt_t nullopt = std::nullopt;
@@ -80,14 +78,12 @@ public:
   template<typename... Args>
   constexpr optional_data(std::in_place_t,
                           Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) :
-      _value(std::forward<Args>(args)...),
-      _active{true} {}
+      _value(std::forward<Args>(args)...), _active{true} {}
 
   template<typename U, typename... Args>
   constexpr optional_data(std::in_place_t, std::initializer_list<U> il, Args&&... args) noexcept(
     std::is_nothrow_constructible_v<T, std::initializer_list<U>, Args...>) :
-      _value(il, std::forward<Args>(args)...),
-      _active{true} {}
+      _value(il, std::forward<Args>(args)...), _active{true} {}
 
   constexpr ~optional_data()
   requires(!std::is_trivially_destructible_v<T>)
@@ -473,28 +469,30 @@ public:
 
 public:
   template<typename F>
-      constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) &
-      requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>) {
-        if (has_value()) {
-          return std::invoke(std::forward<F>(func), base_t::get_value());
-        } else {
-          return {ntf::nullopt};
-        }
-      }
-
-      template<typename F>
-      constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) &&
-    requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&&>>>) {
-      if (has_value()) {
-        return std::invoke(std::forward<F>(func), std::move(base_t::get_value()));
-      } else {
-        return {ntf::nullopt};
-      }
+  constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) &
+  requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
+  {
+    if (has_value()) {
+      return std::invoke(std::forward<F>(func), base_t::get_value());
+    } else {
+      return {ntf::nullopt};
     }
+  }
 
-    template<typename F>
-    constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) const&
-    requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
+  template<typename F>
+  constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) &&
+  requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T &&>>>)
+  {
+    if (has_value()) {
+      return std::invoke(std::forward<F>(func), std::move(base_t::get_value()));
+    } else {
+      return {ntf::nullopt};
+    }
+  }
+
+  template<typename F>
+  constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) const&
+  requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
   {
     if (has_value()) {
       return std::invoke(std::forward<F>(func), base_t::get_value());
@@ -515,30 +513,30 @@ public:
   }
 
   template<typename F>
-      constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) &
-      requires(
-        meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>) {
-        if (has_value()) {
-          return {std::in_place, std::invoke(std::forward<F>(func), base_t::get_value())};
-        } else {
-          return {ntf::nullopt};
-        }
-      }
-
-      template<typename F>
-      constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) &&
-    requires(
-      meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&&>>>) {
-      if (has_value()) {
-        return {std::in_place, std::invoke(std::forward<F>(func), std::move(base_t::get_value()))};
-      } else {
-        return {ntf::nullopt};
-      }
+  constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) &
+  requires(meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
+  {
+    if (has_value()) {
+      return {std::in_place, std::invoke(std::forward<F>(func), base_t::get_value())};
+    } else {
+      return {ntf::nullopt};
     }
+  }
 
-    template<typename F>
-    constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) const&
-    requires(meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
+  template<typename F>
+  constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) &&
+  requires(meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T &&>>>)
+  {
+    if (has_value()) {
+      return {std::in_place, std::invoke(std::forward<F>(func), std::move(base_t::get_value()))};
+    } else {
+      return {ntf::nullopt};
+    }
+  }
+
+  template<typename F>
+  constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) const&
+  requires(meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
   {
     if (has_value()) {
       return {std::in_place, std::invoke(std::forward<F>(func), base_t::get_value())};
@@ -566,10 +564,11 @@ public:
   }
 
   template<typename F>
-    constexpr optional or_else(F&& func) &&
-    requires(std::same_as<std::remove_cvref_t<std::invoke_result_t<F>>, optional>) {
-      return has_value() ? std::move(*this) : std::invoke(std::forward<F>(func));
-    }
+  constexpr optional or_else(F&& func) &&
+  requires(std::same_as<std::remove_cvref_t<std::invoke_result_t<F>>, optional>)
+  {
+    return has_value() ? std::move(*this) : std::invoke(std::forward<F>(func));
+  }
 };
 
 template<typename T>
