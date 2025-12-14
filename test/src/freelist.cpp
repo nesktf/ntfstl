@@ -135,6 +135,32 @@ TEST_CASE("dynamic freelist emplace and access", "[freelist]") {
     REQUIRE(h2.index() == h1.index());
     REQUIRE_FALSE(h2.version() == h1.version());
   }
+
+  SECTION("freelist range for loop on emplaced items") {
+    ntf::freelist<int> list;
+    auto h1 = list.emplace(1);
+    auto h2 = list.emplace(2);
+    auto h3 = list.emplace(3);
+    auto h4 = list.emplace(4);
+    REQUIRE_NOTHROW(list.front() == list[h1]);
+    REQUIRE_NOTHROW(list.back() == list[h4]);
+    REQUIRE(list.size() == 4u);
+    REQUIRE(list[h1] == 1);
+    REQUIRE(list[h2] == 2);
+    REQUIRE(list[h3] == 3);
+    REQUIRE(list[h4] == 4);
+
+    std::vector<int> vals;
+    for (const auto& [elem, _] : list) {
+      vals.emplace_back(elem);
+    }
+
+    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(1));
+    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(2));
+    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(3));
+    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(4));
+    REQUIRE(vals.size() == 4u);
+  }
 }
 
 TEST_CASE("dynamic freelist manages lifetime properly", "[freelist]") {
@@ -243,6 +269,8 @@ TEST_CASE("static freelist capacity limit", "[freelist]") {
   REQUIRE(h2.has_value());
   REQUIRE(h3.has_value());
   REQUIRE(list.size() == 3u);
+  REQUIRE_NOTHROW(list.front() == list[*h1]);
+  REQUIRE_NOTHROW(list.back() == list[*h3]);
 
   SECTION("list can't emplace over the limit") {
     auto h4 = list.emplace(4);
@@ -259,6 +287,18 @@ TEST_CASE("static freelist capacity limit", "[freelist]") {
     REQUIRE(h4->index() == h2->index());
     REQUIRE(list.size() == 3u);
     REQUIRE_NOTHROW(list.at(*h4) == 42);
+  }
+
+  SECTION("freelist range for loop on emplaced items") {
+    std::vector<int> vals;
+    for (const auto& [elem, _] : list) {
+      vals.emplace_back(elem);
+    }
+
+    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(1));
+    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(2));
+    REQUIRE_THAT(vals, Catch::Matchers::VectorContains(3));
+    REQUIRE(vals.size() == 3u);
   }
 }
 

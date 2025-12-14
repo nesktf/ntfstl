@@ -103,34 +103,20 @@ public:
       flag{0u} {}
 
   freelist_slot(const freelist_slot& other) noexcept(std::is_nothrow_copy_constructible_v<T>)
-  requires(std::copy_constructible<T> && !std::is_trivially_copy_constructible_v<T>)
-  {
+  requires(std::copy_constructible<T>)
+      : flag{other.flag}, next{other.next}, prev{other.prev} {
     if (!other.is_empty()) {
       new (&obj) pair_type{other.obj};
     }
-    flag = other.flag;
-    next = other.next;
-    prev = other.prev;
   }
 
-  freelist_slot(const freelist_slot& other) noexcept
-  requires(std::is_trivially_copy_constructible_v<T>)
-  = default;
-
   freelist_slot(freelist_slot&& other) noexcept(std::is_nothrow_move_constructible_v<T>)
-  requires(std::move_constructible<T> && !std::is_trivially_move_constructible_v<T>)
-  {
+  requires(std::move_constructible<T>)
+      : flag{std::move(other.flag)}, next{std::move(other.next)}, prev{std::move(other.prev)} {
     if (!other.is_empty()) {
       new (&obj) pair_type{std::move(other.obj)};
     }
-    flag = std::move(other.flag);
-    prev = std::move(other.prev);
-    next = std::move(other.next);
   }
-
-  freelist_slot(freelist_slot&& other) noexcept
-  requires(std::is_trivially_move_constructible_v<T>)
-  = default;
 
   ~freelist_slot() noexcept
   requires(std::is_trivially_destructible_v<T>)
@@ -812,8 +798,12 @@ public:
       return base_t::reuse_slot({_slots.data(), _slots.size()}, std::forward<Args>(args)...);
     }
     NTF_ASSERT(_slots.size() == size());
+    _slots.emplace_back(); // TODO: Fix this, emplace directly
     const auto empl = [this]<typename... Args2>(u32 idx, u32 ver, Args2&&... inner) -> slot_type& {
-      return _slots.emplace_back(idx, ver, std::forward<Args2>(inner)...);
+      NTF_ASSERT(idx < _slots.size());
+      auto& slot = _slots[idx];
+      slot.construct(idx, ver, std::forward<Args2>(inner)...);
+      return slot;
     };
     return base_t::emplace_slot({_slots.data(), _slots.size()}, empl, std::forward<Args>(args)...);
   }
