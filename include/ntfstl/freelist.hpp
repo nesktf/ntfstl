@@ -325,11 +325,24 @@ public:
   }
 
 private:
-  void _destroy_slot(slot_type& slot) {
+  void _destroy_slot(span_type slots, slot_type& slot) {
     NTF_ASSERT(!slot.is_empty());
     auto& [_, slot_handle] = slot.obj;
     const u32 version = slot_handle.version();
     const u32 idx = slot_handle.index();
+
+    if (_used_front == idx) {
+      _used_front = slot.next;
+      if (slot.next != handle_type::NULL_INDEX) {
+        slots[slot.next].prev = handle_type::NULL_INDEX;
+      }
+    }
+    if (_used_back == idx) {
+      _used_back = slot.prev;
+      if (slot.prev != handle_type::NULL_INDEX) {
+        slots[slot.prev].next = handle_type::NULL_INDEX;
+      }
+    }
 
     slot.destroy();
     slot.next = _free_head;
@@ -387,7 +400,7 @@ public:
     if (slot.is_empty()) {
       return;
     }
-    _destroy_slot(slot);
+    _destroy_slot(slots, slot);
     --_count;
   }
 
@@ -402,19 +415,33 @@ public:
       }
     };
 
-    for (auto& slot : slots) {
-      if (!slot.is_empty() && std::invoke(can_remove, slot)) {
-        _destroy_slot(slot);
+    u32 curr = _used_front;
+    do {
+      NTF_ASSERT(_used_front < slots.size());
+      auto& slot = slots[curr];
+      NTF_ASSERT(!slot.is_empty());
+
+      const u32 prev = slot.prev;
+      const u32 next = slot.next;
+      if (std::invoke(can_remove, slot)) {
+        if (next != handle_type::NULL_INDEX) {
+          slots[prev].next = next;
+        }
+        if (next != handle_type::NULL_INDEX) {
+          slots[next].prev = prev;
+        }
+        _destroy_slot(slots, slot);
         --_count;
       }
-    }
+      curr = next;
+    } while (curr != handle_type::NULL_INDEX);
   }
 
   void clear_slots(span_type slots) noexcept {
     _free_head = handle_type::NULL_INDEX;
     for (slot_type& slot : slots) {
       if (!slot.is_empty()) {
-        _destroy_slot(slot);
+        _destroy_slot(slots, slot);
       }
     }
     _used_front = handle_type::NULL_INDEX;
