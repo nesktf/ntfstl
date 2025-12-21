@@ -2,8 +2,7 @@
 
 #include <ntfstl/concepts.hpp>
 #include <ntfstl/core.hpp>
-
-#include <optional>
+#include <ntfstl/types.hpp>
 
 namespace ntf {
 
@@ -15,8 +14,7 @@ public:
   const char* what() const noexcept override { return "bad_optional_access"; }
 };
 
-using nullopt_t = std::nullopt_t;
-constexpr nullopt_t nullopt = std::nullopt;
+NTF_DECLARE_TAG_TYPE(nullopt);
 
 template<typename T>
 struct optional_null {};
@@ -63,6 +61,31 @@ concept optional_type = optional_checker_v<T>;
 } // namespace meta
 
 namespace impl {
+
+template<bool valid, typename T, typename... Args>
+constexpr void
+rebind_nullable(T& obj, Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
+  static_assert(std::is_nothrow_destructible_v<T>, "T has to be nothrow destructible");
+
+  if constexpr (valid) {
+    // If is obj a constructed object
+    if constexpr (std::is_nothrow_constructible_v<T>) {
+      std::destroy_at(std::addressof(obj));
+      new (std::addressof(obj)) T(std::forward<Args>(args)...);
+    } else {
+      T old(std::move(obj)); // Might throw
+      std::destroy_at(std::addressof(obj));
+      try {
+        new (std::addressof(obj)) T(std::forward<Args>(args)...);
+      } catch (...) {
+        new (std::addressof(obj)) T(std::move(old));
+        NTF_RETHROW();
+      }
+    }
+  } else {
+    new (std::addressof(obj)) T(std::forward<Args>(args)...); // Might throw
+  }
+}
 
 template<typename T>
 class optional_data {
@@ -469,30 +492,28 @@ public:
 
 public:
   template<typename F>
-  constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) &
-  requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
-  {
-    if (has_value()) {
-      return std::invoke(std::forward<F>(func), base_t::get_value());
-    } else {
-      return {ntf::nullopt};
-    }
-  }
+      constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) &
+      requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>) {
+        if (has_value()) {
+          return std::invoke(std::forward<F>(func), base_t::get_value());
+        } else {
+          return {ntf::nullopt};
+        }
+      }
 
-  template<typename F>
-  constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) &&
-  requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T &&>>>)
-  {
-    if (has_value()) {
-      return std::invoke(std::forward<F>(func), std::move(base_t::get_value()));
-    } else {
-      return {ntf::nullopt};
+      template<typename F>
+      constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) &&
+    requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&&>>>) {
+      if (has_value()) {
+        return std::invoke(std::forward<F>(func), std::move(base_t::get_value()));
+      } else {
+        return {ntf::nullopt};
+      }
     }
-  }
 
-  template<typename F>
-  constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) const&
-  requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
+    template<typename F>
+    constexpr std::remove_cvref_t<std::invoke_result_t<F, T&>> and_then(F&& func) const&
+    requires(meta::optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
   {
     if (has_value()) {
       return std::invoke(std::forward<F>(func), base_t::get_value());
@@ -513,30 +534,30 @@ public:
   }
 
   template<typename F>
-  constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) &
-  requires(meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
-  {
-    if (has_value()) {
-      return {std::in_place, std::invoke(std::forward<F>(func), base_t::get_value())};
-    } else {
-      return {ntf::nullopt};
-    }
-  }
+      constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) &
+      requires(
+        meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>) {
+        if (has_value()) {
+          return {std::in_place, std::invoke(std::forward<F>(func), base_t::get_value())};
+        } else {
+          return {ntf::nullopt};
+        }
+      }
 
-  template<typename F>
-  constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) &&
-  requires(meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T &&>>>)
-  {
-    if (has_value()) {
-      return {std::in_place, std::invoke(std::forward<F>(func), std::move(base_t::get_value()))};
-    } else {
-      return {ntf::nullopt};
+      template<typename F>
+      constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) &&
+    requires(
+      meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&&>>>) {
+      if (has_value()) {
+        return {std::in_place, std::invoke(std::forward<F>(func), std::move(base_t::get_value()))};
+      } else {
+        return {ntf::nullopt};
+      }
     }
-  }
 
-  template<typename F>
-  constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) const&
-  requires(meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
+    template<typename F>
+    constexpr optional<std::remove_cvref_t<std::invoke_result_t<F, T&>>> transform(F&& func) const&
+    requires(meta::transformable_optional_type<std::remove_cvref_t<std::invoke_result_t<F, T&>>>)
   {
     if (has_value()) {
       return {std::in_place, std::invoke(std::forward<F>(func), base_t::get_value())};
@@ -564,11 +585,10 @@ public:
   }
 
   template<typename F>
-  constexpr optional or_else(F&& func) &&
-  requires(std::same_as<std::remove_cvref_t<std::invoke_result_t<F>>, optional>)
-  {
-    return has_value() ? std::move(*this) : std::invoke(std::forward<F>(func));
-  }
+    constexpr optional or_else(F&& func) &&
+    requires(std::same_as<std::remove_cvref_t<std::invoke_result_t<F>>, optional>) {
+      return has_value() ? std::move(*this) : std::invoke(std::forward<F>(func));
+    }
 };
 
 template<typename T>
