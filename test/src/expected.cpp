@@ -4,153 +4,549 @@
 
 using namespace ntf::numdefs;
 
-enum class NetworkError { Timeout, Disconnected, Unknown };
+enum class network_error { timeout, disconnected, unknown };
 
-// Struct Move-Only para probar gestión de recursos
-struct Payload {
+struct nontrivial_thing {
+  static inline int alive_count = 0;
+
   int id;
-  std::unique_ptr<int> data;
 
-  Payload(int i) : id(i), data(std::make_unique<int>(i * 10)) {}
+  nontrivial_thing(int i) : id(i) { ++alive_count; }
 
-  // Move only
-  Payload(Payload&&) = default;
-  Payload& operator=(Payload&&) = default;
-  Payload(const Payload&) = delete;
-  Payload& operator=(const Payload&) = delete;
+  nontrivial_thing(nontrivial_thing&& other) noexcept : id(other.id) { ++alive_count; }
 
-  bool operator==(const Payload& other) const { return id == other.id && *data == *other.data; }
+  nontrivial_thing(const nontrivial_thing& other) noexcept : id(other.id) { ++alive_count; }
+
+  ~nontrivial_thing() noexcept { --alive_count; }
+
+  nontrivial_thing& operator=(const nontrivial_thing&) = delete; // we don't care about this
+  nontrivial_thing& operator=(nontrivial_thing&&) = delete;      // we don't care about this
+
+  bool operator==(const nontrivial_thing& other) const { return id == other.id; }
 };
 
-// -----------------------------------------------------------------------------
-// TESTS: Construcción y Acceso Básico
-// -----------------------------------------------------------------------------
-TEST_CASE("Expected: Construcción y Estado Básico", "[expected][basic]") {
+TEST_CASE("basic expected construction", "[expected]") {
+  SECTION("default construction") {
+    ntf::expected<int, network_error> exp;
+    REQUIRE(exp.has_value());
+    REQUIRE(static_cast<bool>(exp));
+    REQUIRE_FALSE(exp.has_error());
+    REQUIRE(*exp == 0);
+    REQUIRE_NOTHROW(exp.value() == 0);
+    REQUIRE(exp.value_or(10) == 0);
+    REQUIRE(exp.error_or(network_error::unknown) == network_error::unknown);
 
-  SECTION("Construcción con Valor (Éxito)") {
-    ntf::expected<int, NetworkError> e(42);
-
-    REQUIRE(e.has_value());
-    REQUIRE(static_cast<bool>(e));
-    REQUIRE(*e == 42);
-    REQUIRE(e.value() == 42);
-    REQUIRE(e.value_or(0) == 42);
+    ntf::expected<void, network_error> exp_void;
+    REQUIRE(exp_void.has_value());
+    REQUIRE(static_cast<bool>(exp_void));
+    REQUIRE_FALSE(exp_void.has_error());
   }
 
-  SECTION("Construcción con Error (Unexpected)") {
-    ntf::expected<int, NetworkError> e = ntf::unexpected<NetworkError>(NetworkError::Timeout);
+  SECTION("value construction with forwarding value") {
+    ntf::expected<int, network_error> exp_rvalue(42);
+    REQUIRE(exp_rvalue.has_value());
+    REQUIRE(static_cast<bool>(exp_rvalue));
+    REQUIRE_FALSE(exp_rvalue.has_error());
+    REQUIRE(*exp_rvalue == 42);
+    REQUIRE_NOTHROW(exp_rvalue.value() == 42);
+    REQUIRE(exp_rvalue.value_or(0) == 42);
+    REQUIRE(exp_rvalue.error_or(network_error::unknown) == network_error::unknown);
 
-    REQUIRE_FALSE(e.has_value());
-    REQUIRE_FALSE(static_cast<bool>(e));
-    REQUIRE(e.error() == NetworkError::Timeout);
-    REQUIRE(e.value_or(100) == 100); // Debe devolver el fallback
+    const int val = 40;
+    ntf::expected<int, network_error> exp_lvalue(val);
+    REQUIRE(exp_lvalue.has_value());
+    REQUIRE(static_cast<bool>(exp_lvalue));
+    REQUIRE_FALSE(exp_lvalue.has_error());
+    REQUIRE(*exp_lvalue == 40);
+    REQUIRE_NOTHROW(exp_rvalue.value() == 40);
+    REQUIRE(exp_lvalue.value_or(0) == 40);
+    REQUIRE(exp_lvalue.error_or(network_error::unknown) == network_error::unknown);
   }
 
-  SECTION("Comparación de Igualdad") {
-    ntf::expected<int, std::string> e1(10);
-    ntf::expected<int, std::string> e2(10);
-    ntf::expected<int, std::string> err1 = ntf::unexpected<std::string>("Fail");
+  SECTION("value in place construction") {
+    ntf::expected<int, network_error> exp(ntf::in_place, 42);
+    REQUIRE(exp.has_value());
+    REQUIRE(static_cast<bool>(exp));
+    REQUIRE(*exp == 42);
+    REQUIRE(exp.value() == 42);
+    REQUIRE(exp.value_or(0) == 42);
+    REQUIRE(exp.error_or(network_error::unknown) == network_error::unknown);
 
-    REQUIRE(e1 == e2);
-    REQUIRE(e1 != err1);
+    ntf::expected<void, network_error> exp_void(ntf::in_place);
+    REQUIRE(exp_void.has_value());
+    REQUIRE(static_cast<bool>(exp_void));
+    REQUIRE_FALSE(exp_void.has_error());
+  }
+
+  SECTION("error construction with forwarding unexpected") {
+    ntf::expected<int, network_error> exp_rvalue =
+      ntf::unexpected<network_error>(network_error::timeout);
+    REQUIRE_FALSE(exp_rvalue.has_value());
+    REQUIRE_FALSE(static_cast<bool>(exp_rvalue));
+    REQUIRE_THROWS_AS(exp_rvalue.value(), ntf::bad_expected_access<network_error>);
+    REQUIRE(exp_rvalue.has_error());
+    REQUIRE(exp_rvalue.error() == network_error::timeout);
+    REQUIRE(exp_rvalue.value_or(100) == 100);
+    REQUIRE(exp_rvalue.error_or(network_error::unknown) == network_error::timeout);
+
+    const ntf::unexpected<network_error> unex(network_error::disconnected);
+    ntf::expected<int, network_error> exp_lvalue(unex);
+    REQUIRE_FALSE(exp_lvalue.has_value());
+    REQUIRE_FALSE(static_cast<bool>(exp_lvalue));
+    REQUIRE_THROWS_AS(exp_lvalue.value(), ntf::bad_expected_access<network_error>);
+    REQUIRE(exp_lvalue.has_error());
+    REQUIRE(exp_lvalue.error() == network_error::disconnected);
+    REQUIRE(exp_lvalue.value_or(100) == 100);
+    REQUIRE(exp_lvalue.error_or(network_error::unknown) == network_error::disconnected);
+
+    ntf::expected<void, network_error> exp_void_rvalue =
+      ntf::unexpected<network_error>(network_error::timeout);
+    REQUIRE_FALSE(exp_void_rvalue.has_value());
+    REQUIRE_FALSE(static_cast<bool>(exp_void_rvalue));
+    REQUIRE_THROWS_AS(exp_void_rvalue.value(), ntf::bad_expected_access<network_error>);
+    REQUIRE(exp_void_rvalue.has_error());
+    REQUIRE(exp_void_rvalue.error() == network_error::timeout);
+    REQUIRE(exp_void_rvalue.error_or(network_error::unknown) == network_error::timeout);
+
+    ntf::expected<void, network_error> exp_void_lvalue(unex);
+    REQUIRE_FALSE(exp_void_lvalue.has_value());
+    REQUIRE_FALSE(static_cast<bool>(exp_void_lvalue));
+    REQUIRE_THROWS_AS(exp_void_lvalue.value(), ntf::bad_expected_access<network_error>);
+    REQUIRE(exp_void_lvalue.has_error());
+    REQUIRE(exp_void_lvalue.error() == network_error::disconnected);
+    REQUIRE(exp_void_lvalue.error_or(network_error::unknown) == network_error::disconnected);
   }
 }
 
-// -----------------------------------------------------------------------------
-// TESTS: Excepciones y Bad Access
-// -----------------------------------------------------------------------------
-TEST_CASE("Expected: Excepciones", "[expected][exception]") {
-  ntf::expected<int, std::string> e = ntf::unexpected<std::string>("Critical Error");
+TEST_CASE("expected non-void trivial move semantics", "[expected]") {
+  static_assert(std::is_trivially_destructible_v<ntf::expected<int, network_error>>);
 
-  SECTION("Acceso a value() cuando hay error lanza excepción") {
-    // La excepción estándar es std::bad_expected_access
-    // Ajusta el tipo de excepción si tu implementación usa otra
-    REQUIRE_THROWS_AS(e.value(), ntf::bad_expected_access<std::string>);
+  ntf::expected<int, network_error> exp_valid(20);
+  REQUIRE(exp_valid.has_value());
+  REQUIRE_FALSE(exp_valid.has_error());
+  REQUIRE_NOTHROW(exp_valid.value() == 20);
+
+  ntf::expected<int, network_error> exp_invalid(ntf::unexpect, network_error::unknown);
+  REQUIRE_FALSE(exp_invalid.has_value());
+  REQUIRE(exp_invalid.has_error());
+  REQUIRE(exp_invalid.error() == network_error::unknown);
+
+  SECTION("copy construction") {
+    static_assert(std::is_trivially_copy_constructible_v<ntf::expected<int, network_error>>);
+
+    auto copy_valid = exp_valid;
+    REQUIRE(copy_valid.has_value());
+    REQUIRE_FALSE(copy_valid.has_error());
+    REQUIRE_NOTHROW(copy_valid.value() == 20);
+    REQUIRE(copy_valid == exp_valid);
+
+    auto copy_invalid = exp_invalid;
+    REQUIRE_FALSE(copy_invalid.has_value());
+    REQUIRE(copy_invalid.has_error());
+    REQUIRE(copy_invalid.error() == network_error::unknown);
+  }
+
+  SECTION("move construction") {
+    static_assert(std::is_trivially_move_constructible_v<ntf::expected<int, network_error>>);
+
+    auto moved_valid = std::move(exp_valid);
+    REQUIRE(moved_valid.has_value());
+    REQUIRE_FALSE(moved_valid.has_error());
+    REQUIRE_NOTHROW(moved_valid.value() == exp_valid.value());
+    REQUIRE(moved_valid == exp_valid);
+
+    auto moved_invalid = std::move(exp_invalid);
+    REQUIRE_FALSE(moved_invalid.has_value());
+    REQUIRE(moved_invalid.has_error());
+    REQUIRE(moved_invalid.error() == exp_invalid.error());
+  }
+
+  SECTION("copy assignment") {
+    // Not actually trivial lmao
+    static_assert(!std::is_trivially_copy_assignable_v<ntf::expected<int, network_error>>);
+
+    ntf::expected<int, network_error> exp0(20);
+    REQUIRE(exp0.has_value());
+    REQUIRE_FALSE(exp0.has_error());
+    REQUIRE_NOTHROW(exp0.value() == 20);
+
+    exp0 = exp_valid;
+    REQUIRE(exp0.has_value());
+    REQUIRE_FALSE(exp0.has_error());
+    REQUIRE_NOTHROW(exp0.value() == exp_valid.value());
+    REQUIRE(exp0 == exp_valid);
+
+    ntf::expected<int, network_error> exp1(40);
+    REQUIRE(exp1.has_value());
+    REQUIRE_FALSE(exp1.has_error());
+    REQUIRE_NOTHROW(exp1.value() == 40);
+
+    exp1 = exp_invalid;
+    REQUIRE_FALSE(exp1.has_value());
+    REQUIRE(exp1.has_error());
+    REQUIRE(exp1.error() == exp_invalid.error());
+
+    ntf::expected<int, network_error> exp2(ntf::unexpect, network_error::timeout);
+    REQUIRE_FALSE(exp2.has_value());
+    REQUIRE(exp2.has_error());
+    REQUIRE(exp2.error() == network_error::timeout);
+
+    exp2 = exp_valid;
+    REQUIRE(exp2.has_value());
+    REQUIRE_FALSE(exp2.has_error());
+    REQUIRE_NOTHROW(exp2.value() == exp_valid.value());
+    REQUIRE(exp2 == exp_valid);
+
+    ntf::expected<int, network_error> exp3(ntf::unexpect, network_error::disconnected);
+    REQUIRE_FALSE(exp3.has_value());
+    REQUIRE(exp3.has_error());
+    REQUIRE(exp3.error() == network_error::disconnected);
+
+    exp3 = exp_invalid;
+    REQUIRE_FALSE(exp3.has_value());
+    REQUIRE(exp3.has_error());
+    REQUIRE(exp3.error() == exp_invalid.error());
+  }
+
+  SECTION("move assignment") {
+    // Not actually trivial lmao
+    static_assert(!std::is_trivially_move_assignable_v<ntf::expected<int, network_error>>);
+
+    ntf::expected<int, network_error> exp0(20);
+    REQUIRE(exp0.has_value());
+    REQUIRE_FALSE(exp0.has_error());
+    REQUIRE_NOTHROW(exp0.value() == 20);
+
+    exp0 = std::move(exp_valid);
+    REQUIRE(exp0.has_value());
+    REQUIRE_FALSE(exp0.has_error());
+    REQUIRE_NOTHROW(exp0.value() == exp_valid.value());
+    REQUIRE(exp0 == exp_valid);
+
+    ntf::expected<int, network_error> exp1(40);
+    REQUIRE(exp1.has_value());
+    REQUIRE_FALSE(exp1.has_error());
+    REQUIRE_NOTHROW(exp1.value() == 40);
+
+    exp1 = std::move(exp_invalid);
+    REQUIRE_FALSE(exp1.has_value());
+    REQUIRE(exp1.has_error());
+    REQUIRE(exp1.error() == exp_invalid.error());
+
+    ntf::expected<int, network_error> exp2(ntf::unexpect, network_error::timeout);
+    REQUIRE_FALSE(exp2.has_value());
+    REQUIRE(exp2.has_error());
+    REQUIRE(exp2.error() == network_error::timeout);
+
+    exp2 = std::move(exp_valid);
+    REQUIRE(exp2.has_value());
+    REQUIRE_FALSE(exp2.has_error());
+    REQUIRE_NOTHROW(exp2.value() == exp_valid.value());
+    REQUIRE(exp2 == exp_valid);
+
+    ntf::expected<int, network_error> exp3(ntf::unexpect, network_error::disconnected);
+    REQUIRE_FALSE(exp3.has_value());
+    REQUIRE(exp3.has_error());
+    REQUIRE(exp3.error() == network_error::disconnected);
+
+    exp3 = std::move(exp_invalid);
+    REQUIRE_FALSE(exp3.has_value());
+    REQUIRE(exp3.has_error());
+    REQUIRE(exp3.error() == exp_invalid.error());
   }
 }
 
-// -----------------------------------------------------------------------------
-// TESTS: Tipos Complejos (Move Semantics)
-// -----------------------------------------------------------------------------
-TEST_CASE("Expected: Tipos Move-Only", "[expected][move]") {
-  SECTION("Mover un expected con valor") {
-    ntf::expected<Payload, int> src(Payload(5));
+TEST_CASE("expected non-trivial move semantics", "[expected]") {
+  static_assert(!std::is_trivially_destructible_v<ntf::expected<nontrivial_thing, network_error>>);
+  static_assert(!std::is_trivially_destructible_v<ntf::expected<int, nontrivial_thing>>);
 
-    // Move construction
-    ntf::expected<Payload, int> dst(std::move(src));
+  nontrivial_thing::alive_count = 0;
 
-    REQUIRE(dst.has_value());
-    REQUIRE(dst->id == 5);
-    REQUIRE(*dst->data == 50);
+  ntf::expected<nontrivial_thing, network_error> expval_valid(ntf::in_place, 20);
+  REQUIRE(expval_valid.has_value());
+  REQUIRE_FALSE(expval_valid.has_error());
+  REQUIRE_NOTHROW(expval_valid.value().id == 20);
+  REQUIRE(nontrivial_thing::alive_count == 1);
 
-    // src queda en estado válido pero indefinido (típicamente movido)
-    // No deberíamos acceder a src->data después de esto
+  ntf::expected<nontrivial_thing, network_error> expval_invalid(ntf::unexpect,
+                                                                network_error::unknown);
+  REQUIRE_FALSE(expval_invalid.has_value());
+  REQUIRE(expval_invalid.has_error());
+  REQUIRE(expval_invalid.error() == network_error::unknown);
+  REQUIRE(nontrivial_thing::alive_count == 1);
+
+  ntf::expected<int, nontrivial_thing> experr_valid(20);
+  REQUIRE(experr_valid.has_value());
+  REQUIRE_FALSE(experr_valid.has_error());
+  REQUIRE_NOTHROW(experr_valid.value() == 20);
+  REQUIRE(nontrivial_thing::alive_count == 1);
+
+  ntf::expected<int, nontrivial_thing> experr_invalid(ntf::unexpect, 40);
+  REQUIRE_FALSE(experr_invalid.has_value());
+  REQUIRE(experr_invalid.has_error());
+  REQUIRE(experr_invalid.error().id == 40);
+  REQUIRE(nontrivial_thing::alive_count == 2);
+
+  SECTION("copy construction") {
+    static_assert(
+      !std::is_trivially_copy_constructible_v<ntf::expected<nontrivial_thing, network_error>>);
+    static_assert(!std::is_trivially_copy_constructible_v<ntf::expected<int, nontrivial_thing>>);
+
+    auto copy_valid0 = expval_valid;
+    REQUIRE(copy_valid0.has_value());
+    REQUIRE_FALSE(copy_valid0.has_error());
+    REQUIRE_NOTHROW(copy_valid0.value().id == 20);
+    REQUIRE(copy_valid0 == expval_valid);
+
+    auto copy_invalid0 = expval_invalid;
+    REQUIRE_FALSE(copy_invalid0.has_value());
+    REQUIRE(copy_invalid0.has_error());
+    REQUIRE(copy_invalid0.error() == network_error::unknown);
+
+    auto copy_valid1 = experr_valid;
+    REQUIRE(copy_valid1.has_value());
+    REQUIRE_FALSE(copy_valid1.has_error());
+    REQUIRE_NOTHROW(copy_valid1.value() == 20);
+    REQUIRE(copy_valid1 == experr_valid);
+
+    auto copy_invalid1 = experr_invalid;
+    REQUIRE_FALSE(copy_invalid1.has_value());
+    REQUIRE(copy_invalid1.has_error());
+    REQUIRE(copy_invalid1.error().id == 40);
+
+    REQUIRE(nontrivial_thing::alive_count == 4);
   }
 
-  SECTION("Emplace construct") {
-    ntf::expected<Payload, int> e(std::in_place, 10); // Llama al constructor de Payload(10)
-    REQUIRE(e.has_value());
-    REQUIRE(e->id == 10);
+  SECTION("move construction") {
+    static_assert(
+      !std::is_trivially_move_constructible_v<ntf::expected<nontrivial_thing, network_error>>);
+    static_assert(!std::is_trivially_move_constructible_v<ntf::expected<int, nontrivial_thing>>);
+
+    auto copy_valid0 = std::move(expval_valid);
+    REQUIRE(copy_valid0.has_value());
+    REQUIRE_FALSE(copy_valid0.has_error());
+    REQUIRE_NOTHROW(copy_valid0.value().id == 20);
+    REQUIRE(copy_valid0 == expval_valid);
+
+    auto copy_invalid0 = std::move(expval_invalid);
+    REQUIRE_FALSE(copy_invalid0.has_value());
+    REQUIRE(copy_invalid0.has_error());
+    REQUIRE(copy_invalid0.error() == network_error::unknown);
+
+    auto copy_valid1 = std::move(experr_valid);
+    REQUIRE(copy_valid1.has_value());
+    REQUIRE_FALSE(copy_valid1.has_error());
+    REQUIRE_NOTHROW(copy_valid1.value() == 20);
+    REQUIRE(copy_valid1 == experr_valid);
+
+    auto copy_invalid1 = std::move(experr_invalid);
+    REQUIRE_FALSE(copy_invalid1.has_value());
+    REQUIRE(copy_invalid1.has_error());
+    REQUIRE(copy_invalid1.error().id == 40);
+
+    REQUIRE(nontrivial_thing::alive_count == 4);
+  }
+
+  SECTION("copy assignment") {
+    static_assert(
+      !std::is_trivially_copy_assignable_v<ntf::expected<nontrivial_thing, network_error>>);
+    static_assert(!std::is_trivially_copy_assignable_v<ntf::expected<int, nontrivial_thing>>);
+
+    ntf::expected<nontrivial_thing, network_error> expval0(ntf::in_place, 40);
+    REQUIRE(expval0.has_value());
+    REQUIRE_FALSE(expval0.has_error());
+    REQUIRE_NOTHROW(expval0.value().id == 40);
+    REQUIRE(nontrivial_thing::alive_count == 3);
+
+    expval0 = expval_valid;
+    REQUIRE(expval0.has_value());
+    REQUIRE_FALSE(expval0.has_error());
+    REQUIRE_NOTHROW(expval0.value() == expval_valid.value());
+    REQUIRE(expval0 == expval_valid);
+    REQUIRE(nontrivial_thing::alive_count == 3);
+
+    ntf::expected<nontrivial_thing, network_error> expval1(ntf::in_place, 40);
+    REQUIRE(expval1.has_value());
+    REQUIRE_FALSE(expval1.has_error());
+    REQUIRE_NOTHROW(expval1.value().id == 40);
+    REQUIRE(nontrivial_thing::alive_count == 4);
+
+    expval1 = expval_invalid;
+    REQUIRE_FALSE(expval1.has_value());
+    REQUIRE(expval1.has_error());
+    REQUIRE(expval1.error() == expval_invalid.error());
+    REQUIRE(nontrivial_thing::alive_count == 3);
+
+    ntf::expected<int, nontrivial_thing> experr0(60);
+    REQUIRE(experr0.has_value());
+    REQUIRE_FALSE(experr0.has_error());
+    REQUIRE_NOTHROW(experr0.value() == 60);
+    REQUIRE(nontrivial_thing::alive_count == 3);
+
+    experr0 = experr_valid;
+    REQUIRE(experr0.has_value());
+    REQUIRE_FALSE(experr0.has_error());
+    REQUIRE_NOTHROW(experr0.value() == experr_valid.value());
+    REQUIRE(experr0 == experr_valid);
+    REQUIRE(nontrivial_thing::alive_count == 3);
+
+    ntf::expected<int, nontrivial_thing> experr1(ntf::unexpect, 50);
+    REQUIRE_FALSE(experr_invalid.has_value());
+    REQUIRE(experr1.has_error());
+    REQUIRE(experr1.error().id == 50);
+    REQUIRE(nontrivial_thing::alive_count == 4);
+
+    experr1 = experr_invalid;
+    REQUIRE_FALSE(experr1.has_value());
+    REQUIRE(experr1.has_error());
+    REQUIRE(experr1.error() == experr_invalid.error());
+    REQUIRE(nontrivial_thing::alive_count == 4);
+  }
+
+  SECTION("move assignment") {
+    static_assert(
+      !std::is_trivially_move_assignable_v<ntf::expected<nontrivial_thing, network_error>>);
+    static_assert(!std::is_trivially_move_assignable_v<ntf::expected<int, nontrivial_thing>>);
+
+    ntf::expected<nontrivial_thing, network_error> expval0(ntf::in_place, 40);
+    REQUIRE(expval0.has_value());
+    REQUIRE_FALSE(expval0.has_error());
+    REQUIRE_NOTHROW(expval0.value().id == 40);
+    REQUIRE(nontrivial_thing::alive_count == 3);
+
+    expval0 = std::move(expval_valid);
+    REQUIRE(expval0.has_value());
+    REQUIRE_FALSE(expval0.has_error());
+    REQUIRE_NOTHROW(expval0.value() == expval_valid.value());
+    REQUIRE(expval0 == expval_valid);
+    REQUIRE(nontrivial_thing::alive_count == 3);
+
+    ntf::expected<nontrivial_thing, network_error> expval1(ntf::in_place, 40);
+    REQUIRE(expval1.has_value());
+    REQUIRE_FALSE(expval1.has_error());
+    REQUIRE_NOTHROW(expval1.value().id == 40);
+    REQUIRE(nontrivial_thing::alive_count == 4);
+
+    expval1 = std::move(expval_invalid);
+    REQUIRE_FALSE(expval1.has_value());
+    REQUIRE(expval1.has_error());
+    REQUIRE(expval1.error() == expval_invalid.error());
+    REQUIRE(nontrivial_thing::alive_count == 3);
+
+    ntf::expected<int, nontrivial_thing> experr0(60);
+    REQUIRE(experr0.has_value());
+    REQUIRE_FALSE(experr0.has_error());
+    REQUIRE_NOTHROW(experr0.value() == 60);
+    REQUIRE(nontrivial_thing::alive_count == 3);
+
+    experr0 = std::move(experr_valid);
+    REQUIRE(experr0.has_value());
+    REQUIRE_FALSE(experr0.has_error());
+    REQUIRE_NOTHROW(experr0.value() == experr_valid.value());
+    REQUIRE(experr0 == experr_valid);
+    REQUIRE(nontrivial_thing::alive_count == 3);
+
+    ntf::expected<int, nontrivial_thing> experr1(ntf::unexpect, 50);
+    REQUIRE_FALSE(experr_invalid.has_value());
+    REQUIRE(experr1.has_error());
+    REQUIRE(experr1.error().id == 50);
+    REQUIRE(nontrivial_thing::alive_count == 4);
+
+    experr1 = std::move(experr_invalid);
+    REQUIRE_FALSE(experr1.has_value());
+    REQUIRE(experr1.has_error());
+    REQUIRE(experr1.error() == experr_invalid.error());
+    REQUIRE(nontrivial_thing::alive_count == 4);
   }
 }
 
-// -----------------------------------------------------------------------------
-// TESTS: Operaciones Monadicas (and_then, transform, or_else)
-// -----------------------------------------------------------------------------
-TEST_CASE("Expected: Operaciones Monadicas", "[expected][monadic]") {
-
-  // Función auxiliar: divide, devuelve error si divisor es 0
-  auto safe_divide = [](int a, int b) -> ntf::expected<int, std::string> {
-    if (b == 0)
+TEST_CASE("expected monadic operations", "[expected]") {
+  const auto safe_divide = [](int a, int b) -> ntf::expected<int, std::string> {
+    if (b == 0) {
       return ntf::unexpected<std::string>("Division by zero");
+    }
     return a / b;
   };
+  const auto num_to_str = [](int val) {
+    return "Number: " + std::to_string(val);
+  };
 
-  SECTION("transform (map): Modifica el valor si existe") {
-    ntf::expected<int, std::string> e(10);
+  SECTION("transform") {
+    const ntf::expected<int, std::string> exp_lvalue(10);
+    const auto res_lvalue = exp_lvalue.transform(num_to_str);
+    REQUIRE(res_lvalue.has_value());
+    REQUIRE(res_lvalue.value() == "Number: 10");
 
-    // Int -> String
-    auto res = e.transform([](int val) { return "Number: " + std::to_string(val); });
+    const ntf::expected<int, std::string> exp_lvalue_err = ntf::unexpected<std::string>("Error");
+    const auto err_lvalue = exp_lvalue_err.transform(num_to_str);
+    REQUIRE_FALSE(err_lvalue.has_value());
+    REQUIRE(err_lvalue.error() == "Error");
 
-    REQUIRE(res.has_value());
-    REQUIRE(res.value() == "Number: 10");
+    const auto res_rvalue = ntf::expected<int, std::string>(10).transform(num_to_str);
+    REQUIRE(res_rvalue.has_value());
+    REQUIRE(res_rvalue.value() == "Number: 10");
 
-    // Si hay error, transform no se ejecuta y propaga el error
-    ntf::expected<int, std::string> err = ntf::unexpected<std::string>("Original Error");
-    auto res_err = err.transform([](int) { return 999; });
+    const auto err_rvalue =
+      ntf::expected<int, std::string>(ntf::unexpected<std::string>("Error")).transform(num_to_str);
+    REQUIRE_FALSE(err_rvalue.has_value());
+    REQUIRE(err_rvalue.error() == "Error");
 
-    REQUIRE_FALSE(res_err.has_value());
-    REQUIRE(res_err.error() == "Original Error");
+    int value = 0;
+    const ntf::expected<void, std::string> exp_void_lvalue;
+    const auto res_void_lvalue = exp_void_lvalue.transform([&]() { value = 2; });
+    REQUIRE(res_void_lvalue.has_value());
+    REQUIRE(value == 2);
+
+    value = 0;
+    const ntf::expected<void, std::string> exp_void_lvalue_err =
+      ntf::unexpected<std::string>("Error");
+    const auto err_void_lvalue = exp_void_lvalue_err.transform([&]() { value = 5; });
+    REQUIRE_FALSE(err_void_lvalue.has_value());
+    REQUIRE(value == 0);
+
+    value = 0;
+    const auto res_void_rvalue =
+      ntf::expected<void, std::string>().transform([&]() { value = 4; });
+    REQUIRE(res_void_rvalue.has_value());
+    REQUIRE(value == 4);
+
+    value = 0;
+    const auto err_void_rvalue =
+      ntf::expected<void, std::string>(ntf::unexpected<std::string>("Error")).transform([&]() {
+        value = 8;
+      });
+    REQUIRE_FALSE(err_void_rvalue.has_value());
+    REQUIRE(value == 0);
   }
 
-  SECTION("and_then (bind): Encadena operaciones que pueden fallar") {
+  SECTION("and_then") {
     ntf::expected<int, std::string> start(20);
 
-    auto result = start
-                    .and_then([&](int val) { return safe_divide(val, 2); })  // 20 / 2 = 10
-                    .and_then([&](int val) { return safe_divide(val, 5); }); // 10 / 5 = 2
-
+    auto result =
+      start.and_then([&](int val) { return safe_divide(val, 2); }).and_then([&](int val) {
+        return safe_divide(val, 5);
+      });
     REQUIRE(result.has_value());
     REQUIRE(result.value() == 2);
+
+    ntf::expected<int, std::string> start2(20);
+
+    auto result2 =
+      start2.and_then([&](int val) { return safe_divide(val, 0); }).and_then([&](int val) {
+        return safe_divide(val, 5);
+      });
+
+    REQUIRE_FALSE(result2.has_value());
+    REQUIRE(result2.error() == "Division by zero");
   }
 
-  SECTION("and_then interrumpe cadena en error") {
-    ntf::expected<int, std::string> start(20);
-
-    auto result = start
-                    .and_then([&](int val) { return safe_divide(val, 0); })  // Error aquí!
-                    .and_then([&](int val) { return safe_divide(val, 5); }); // No se ejecuta
-
-    REQUIRE_FALSE(result.has_value());
-    REQUIRE(result.error() == "Division by zero");
-  }
-
-  SECTION("or_else (catch): Recuperación de errores") {
+  SECTION("or_else") {
     ntf::expected<int, std::string> e = ntf::unexpected<std::string>("Fail");
 
     auto recovered = e.or_else([](const std::string& err) -> ntf::expected<int, std::string> {
-      if (err == "Fail")
-        return 0; // Recuperamos con valor 0
+      if (err == "Fail") {
+        return 0;
+      }
       return ntf::unexpected<std::string>(err);
     });
 
@@ -158,46 +554,13 @@ TEST_CASE("Expected: Operaciones Monadicas", "[expected][monadic]") {
     REQUIRE(recovered.value() == 0);
   }
 
-  SECTION("transform_error: Modifica el tipo de error") {
+  SECTION("transform_error") {
     ntf::expected<int, int> e = ntf::unexpected<int>(404);
 
-    // Convertimos código de error int a string
     ntf::expected<int, std::string> res =
       e.transform_error([](int code) { return "Error Code: " + std::to_string(code); });
 
     REQUIRE_FALSE(res.has_value());
     REQUIRE(res.error() == "Error Code: 404");
-  }
-}
-
-// -----------------------------------------------------------------------------
-// TESTS: Especialización void (expected<void, E>)
-// -----------------------------------------------------------------------------
-TEST_CASE("Expected: Especialización Void", "[expected][void]") {
-
-  SECTION("Éxito sin valor") {
-    ntf::expected<void, std::string> e; // Constructor por defecto es éxito void
-
-    REQUIRE(e.has_value());
-    // e.value() devuelve void, así que solo verificamos que no lance
-    REQUIRE_NOTHROW(e.value());
-  }
-
-  SECTION("Fallo en void expected") {
-    ntf::expected<void, int> e = ntf::unexpected<int>(500);
-    REQUIRE_FALSE(e.has_value());
-    REQUIRE(e.error() == 500);
-  }
-
-  SECTION("Monadics en void") {
-    ntf::expected<void, std::string> e;
-
-    // transform en void no recibe argumentos (el valor es 'nada')
-    auto res = e.transform([]() {
-      return 100; // void -> int
-    });
-
-    REQUIRE(res.has_value());
-    REQUIRE(res.value() == 100);
   }
 }

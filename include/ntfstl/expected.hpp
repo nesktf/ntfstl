@@ -108,38 +108,45 @@ NTF_DECLARE_TAG_TYPE(unexpect);
 namespace impl {
 
 template<bool valid, typename T, typename E, typename... Args>
-constexpr void
-expect_rebind_error(T& val, E& err,
-                    Args&&... args) noexcept(std::is_nothrow_constructible_v<E, Args...>) {
+constexpr void expect_rebind_error(T& val, E& err, Args&&... args) noexcept(
+  std::is_nothrow_constructible_v<T, Args...> || std::is_nothrow_move_constructible_v<T>) {
   static_assert(std::is_nothrow_destructible_v<E>, "E has to be nothrow destructible");
   static_assert(std::is_nothrow_destructible_v<T>, "T has to be nothrow destructible");
   if constexpr (valid) {
     // If is val a constructed object
-    if constexpr (std::is_nothrow_constructible_v<E>) {
+    if constexpr (std::is_nothrow_constructible_v<E, Args...>) {
       std::destroy_at(std::addressof(val));
       new (std::addressof(err)) E(std::forward<Args>(args)...);
+    } else if constexpr (std::is_nothrow_move_constructible_v<E>) {
+      E new_err(std::forward<Args>(args)...); // Might throw
+      std::destroy_at(std::addressof(val));
+      new (std::addressof(err)) E(std::move(new_err));
     } else {
-      T old(std::move(val)); // Might throw
+      T old_val(std::move(val)); // Might or might not throw
       std::destroy_at(std::addressof(val));
       try {
         new (std::addressof(err)) E(std::forward<Args>(args)...);
       } catch (...) {
-        new (std::addressof(val)) T(std::move(old));
+        new (std::addressof(val)) T(std::move(old_val));
         NTF_RETHROW();
       }
     }
   } else {
     // If is err a constructed object
-    if constexpr (std::is_nothrow_constructible_v<E>) {
+    if constexpr (std::is_nothrow_constructible_v<E, Args...>) {
       std::destroy_at(std::addressof(err));
       new (std::addressof(err)) E(std::forward<Args>(args)...);
+    } else if constexpr (std::is_nothrow_move_constructible_v<E>) {
+      E new_err(std::forward<Args>(args)...); // Might throw
+      std::destroy_at(std::addressof(err));
+      new (std::addressof(err)) E(std::move(new_err));
     } else {
-      E old(std::move(err)); // Might throw
+      E old_err(std::move(err)); // Might throw
       std::destroy_at(std::addressof(err));
       try {
         new (std::addressof(err)) E(std::forward<Args>(args)...);
       } catch (...) {
-        new (std::addressof(err)) E(std::move(old));
+        new (std::addressof(err)) E(std::move(old_err));
         NTF_RETHROW();
       }
     }
@@ -147,40 +154,46 @@ expect_rebind_error(T& val, E& err,
 }
 
 template<bool valid, typename T, typename E, typename... Args>
-constexpr void
-expect_rebind_value(T& val, E& err,
-                    Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
+constexpr void expect_rebind_value(T& val, E& err, Args&&... args) noexcept(
+  std::is_nothrow_constructible_v<T, Args...> || std::is_nothrow_move_constructible_v<T>) {
   static_assert(std::is_nothrow_destructible_v<E>, "E has to be nothrow destructible");
   static_assert(std::is_nothrow_destructible_v<T>, "T has to be nothrow destructible");
 
   if constexpr (valid) {
     // If is val a constructed object
-    if constexpr (std::is_nothrow_constructible_v<T>) {
+    if constexpr (std::is_nothrow_constructible_v<T, Args...>) {
       std::destroy_at(std::addressof(val));
       new (std::addressof(val)) T(std::forward<Args>(args)...);
+    } else if constexpr (std::is_nothrow_move_constructible_v<T>) {
+      T new_val(std::forward<Args>(args)...); // Might throw
+      std::destroy_at(std::addressof(val));
+      new (std::addressof(val)) T(std::move(new_val));
     } else {
-      T old(std::move(val)); // Might throw
+      T old_val(std::move(val)); // Might throw
       std::destroy_at(std::addressof(val));
       try {
         new (std::addressof(val)) T(std::forward<Args>(args)...);
       } catch (...) {
-        new (std::addressof(val)) T(std::move(old));
+        new (std::addressof(val)) T(std::move(old_val));
         NTF_RETHROW();
       }
     }
   } else {
     // If is err a constructed object
-    if constexpr (std::is_nothrow_constructible_v<T>) {
+    if constexpr (std::is_nothrow_constructible_v<T, Args...>) {
       std::destroy_at(std::addressof(err));
       new (std::addressof(val)) T(std::forward<Args>(args)...);
+    } else if constexpr (std::is_nothrow_move_constructible_v<T>) {
+      T new_val(std::forward<Args>(args)...); // Might throw
+      std::destroy_at(std::addressof(err));
+      new (std::addressof(val)) T(std::move(new_val));
     } else {
-      E old(std::move(err)); // Might throw
+      E old_err(std::move(err)); // Might or might not throw
       std::destroy_at(std::addressof(err));
       try {
         new (std::addressof(val)) T(std::forward<Args>(args)...);
-        _construct_val(std::forward<Args>(args)...);
       } catch (...) {
-        new (std::addressof(err)) T(std::move(old));
+        new (std::addressof(err)) E(std::move(old_err));
         NTF_RETHROW();
       }
     }
@@ -198,12 +211,6 @@ private:
 
   static constexpr bool _triv_copyc =
     std::is_trivially_copy_constructible_v<T> && std::is_trivially_copy_constructible_v<E>;
-
-  static constexpr bool _triv_movea =
-    std::is_trivially_move_assignable_v<T> && std::is_trivially_move_assignable_v<E>;
-
-  static constexpr bool _triv_copya =
-    std::is_trivially_copy_assignable_v<T> && std::is_trivially_copy_assignable_v<E>;
 
 public:
   constexpr expected_storage() noexcept(std::is_nothrow_default_constructible_v<T>)
@@ -277,20 +284,20 @@ public:
     if (other.has_value()) {
       new (std::addressof(_value)) T(other.get());
     } else {
-      new (std::addressof(_error)) T(other.get_error());
+      new (std::addressof(_error)) E(other.get_error());
     }
   }
 
 public:
-  constexpr expected_storage& operator=(expected_storage&& other) noexcept
-  requires(_triv_movea)
-  = default;
-
   constexpr expected_storage&
   operator=(expected_storage& other) noexcept(std::is_nothrow_move_constructible_v<T> &&
                                               std::is_nothrow_move_constructible_v<E>)
-  requires(std::is_move_constructible_v<T> && std::is_move_constructible_v<E> && !_triv_movea)
+  requires(std::is_move_constructible_v<T> && std::is_move_constructible_v<E>)
   {
+    if (std::addressof(other) == this) {
+      return *this;
+    }
+
     if (has_value()) {
       if (other.has_value()) {
         expect_rebind_value<true>(_value, _error, std::move(other.get()));
@@ -309,15 +316,15 @@ public:
   }
 
 public:
-  constexpr expected_storage& operator=(const expected_storage& other) noexcept
-  requires(_triv_copya)
-  = default;
-
   constexpr expected_storage&
   operator=(const expected_storage& other) noexcept(std::is_nothrow_copy_constructible_v<T> &&
                                                     std::is_nothrow_copy_constructible_v<E>)
-  requires(std::is_copy_constructible_v<T> && std::is_copy_constructible_v<E> && _triv_copya)
+  requires(std::is_copy_constructible_v<T> && std::is_copy_constructible_v<E>)
   {
+    if (std::addressof(other) == this) {
+      return *this;
+    }
+
     if (has_value()) {
       if (other.has_value()) {
         expect_rebind_value<true>(_value, _error, other.get());
@@ -364,7 +371,8 @@ public:
 
 public:
   template<typename... Args>
-  constexpr T& emplace(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
+  constexpr T& emplace(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...> ||
+                                                std::is_nothrow_move_constructible_v<T>) {
     if (_valid) {
       expect_rebind_value<true>(_value, _error, std::forward<Args>(args)...);
     } else {
@@ -376,7 +384,8 @@ public:
 
   template<typename U, typename... Args>
   constexpr T& emplace(std::initializer_list<U> il, Args&&... args) noexcept(
-    std::is_nothrow_constructible_v<T, std::initializer_list<U>, Args...>) {
+    std::is_nothrow_constructible_v<T, std::initializer_list<U>, Args...> ||
+    std::is_nothrow_move_constructible_v<T>) {
     if (_valid) {
       expect_rebind_value<true>(_value, _error, il, std::forward<Args>(args)...);
     } else {
@@ -388,7 +397,8 @@ public:
 
   template<typename... Args>
   constexpr E&
-  emplace_error(Args&&... args) noexcept(std::is_nothrow_constructible_v<E, Args...>) {
+  emplace_error(Args&&... args) noexcept(std::is_nothrow_constructible_v<E, Args...> ||
+                                         std::is_nothrow_move_constructible_v<E>) {
     if (_valid) {
       expect_rebind_error<true>(_value, _error, std::forward<Args>(args)...);
       _valid = false;
@@ -400,7 +410,8 @@ public:
 
   template<typename U, typename... Args>
   constexpr E& emplace_error(std::initializer_list<U> il, Args&&... args) noexcept(
-    std::is_nothrow_constructible_v<E, std::initializer_list<U>, Args...>) {
+    std::is_nothrow_constructible_v<E, std::initializer_list<U>, Args...> ||
+    std::is_nothrow_move_constructible_v<E>) {
     if (_valid) {
       expect_rebind_error<true>(_value, _error, il, std::forward<Args>(args)...);
       _valid = false;
@@ -706,78 +717,101 @@ public:
 public:
   template<typename F>
   constexpr auto and_then(F&& func) & {
-    using U = impl::expect_monadic_chain_t<F, decltype(this->get())>;
-    static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
-
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<T>) {
+    if constexpr (std::is_void_v<T>) {
+      using U = impl::expect_monadic_chain_t<F, void>;
+      static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
+      if (this->has_value()) {
         return std::invoke(std::forward<F>(func));
       } else {
-        return std::invoke(std::forward<F>(func), this->get());
+        return U{unexpect, this->get_error()};
       }
     } else {
-      return U{unexpect, this->get_error()};
+      using U = impl::expect_monadic_chain_t<F, decltype(this->get())>;
+      static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
+      if (this->has_value()) {
+        return std::invoke(std::forward<F>(func), this->get());
+      } else {
+        return U{unexpect, this->get_error()};
+      }
     }
   }
 
   template<typename F>
   constexpr auto and_then(F&& func) && {
-    using U = impl::expect_monadic_chain_t<F, decltype(std::move(this->get()))>;
-    static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
-
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<T>) {
+    if constexpr (std::is_void_v<T>) {
+      using U = impl::expect_monadic_chain_t<F, void>;
+      static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
+      if (this->has_value()) {
         return std::invoke(std::forward<F>(func));
       } else {
-        return std::invoke(std::forward<F>(func), std::move(this->get()));
+        return U{unexpect, std::move(this->get_error())};
       }
     } else {
-      return U{unexpect, std::move(this->get_error())};
+      using U = impl::expect_monadic_chain_t<F, decltype(std::move(this->get()))>;
+      static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
+      if (this->has_value()) {
+        return std::invoke(std::forward<F>(func), std::move(this->get()));
+      } else {
+        return U{unexpect, std::move(this->get_error())};
+      }
     }
   }
 
   template<typename F>
   constexpr auto and_then(F&& func) const& {
-    using U = impl::expect_monadic_chain_t<F, decltype(this->get())>;
-    static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
-
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<T>) {
+    if constexpr (std::is_void_v<T>) {
+      using U = impl::expect_monadic_chain_t<F, void>;
+      static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
+      if (this->has_value()) {
         return std::invoke(std::forward<F>(func));
       } else {
-        return std::invoke(std::forward<F>(func), this->get());
+        return U{unexpect, this->get_error()};
       }
     } else {
-      return U{unexpect, this->get_error()};
+      using U = impl::expect_monadic_chain_t<F, decltype(this->get())>;
+      static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
+      if (this->has_value()) {
+        return std::invoke(std::forward<F>(func), this->get());
+      } else {
+        return U{unexpect, this->get_error()};
+      }
     }
   }
 
   template<typename F>
   constexpr auto and_then(F&& func) const&& {
-    using U = impl::expect_monadic_chain_t<F, decltype(std::move(this->get()))>;
-    static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
-
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<T>) {
+    if constexpr (std::is_void_v<T>) {
+      using U = impl::expect_monadic_chain_t<F, void>;
+      static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
+      if (this->has_value()) {
         return std::invoke(std::forward<F>(func));
       } else {
-        return std::invoke(std::forward<F>(func), std::move(this->get()));
+        return U{unexpect, std::move(this->get_error())};
       }
     } else {
-      return U{unexpect, std::move(this->get_error())};
+      using U = impl::expect_monadic_chain_t<F, decltype(std::move(this->get()))>;
+      static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
+      if (this->has_value()) {
+        return std::invoke(std::forward<F>(func), std::move(this->get()));
+      } else {
+        return U{unexpect, std::move(this->get_error())};
+      }
     }
   }
 
 public:
   template<typename F>
   constexpr auto or_else(F&& func) & {
-    using G = impl::expect_monadic_chain_t<F, decltype(this->get_error())>;
-    static_assert(meta::expected_with_error<G, E>, "F needs to return an expected with error E");
-
     if (this->has_value()) {
       if constexpr (std::is_void_v<T>) {
+        using G = impl::expect_monadic_chain_t<F, void>;
+        static_assert(meta::expected_with_type<G, T>,
+                      "F needs to return an expected with value T");
         return G{in_place};
       } else {
+        using G = impl::expect_monadic_chain_t<F, decltype(this->get_error())>;
+        static_assert(meta::expected_with_type<G, T>,
+                      "F needs to return an expected with value T");
         return G{in_place, this->get()};
       }
     } else {
@@ -787,13 +821,16 @@ public:
 
   template<typename F>
   constexpr auto or_else(F&& func) && {
-    using G = impl::expect_monadic_chain_t<F, decltype(std::move(this->get_error()))>;
-    static_assert(meta::expected_with_error<G, E>, "F needs to return an expected with error E");
-
     if (this->has_value()) {
       if constexpr (std::is_void_v<T>) {
+        using G = impl::expect_monadic_chain_t<F, void>;
+        static_assert(meta::expected_with_type<G, T>,
+                      "F needs to return an expected with value T");
         return G{in_place};
       } else {
+        using G = impl::expect_monadic_chain_t<F, decltype(std::move(this->get_error()))>;
+        static_assert(meta::expected_with_type<G, T>,
+                      "F needs to return an expected with value T");
         return G{in_place, std::move(this->get())};
       }
     } else {
@@ -803,13 +840,16 @@ public:
 
   template<typename F>
   constexpr auto or_else(F&& func) const& {
-    using G = impl::expect_monadic_chain_t<F, decltype(this->get_error())>;
-    static_assert(meta::expected_with_error<G, E>, "F needs to return an expected with error E");
-
     if (this->has_value()) {
       if constexpr (std::is_void_v<T>) {
+        using G = impl::expect_monadic_chain_t<F, void>;
+        static_assert(meta::expected_with_type<G, T>,
+                      "F needs to return an expected with value T");
         return G{in_place};
       } else {
+        using G = impl::expect_monadic_chain_t<F, decltype(this->get_error())>;
+        static_assert(meta::expected_with_type<G, T>,
+                      "F needs to return an expected with value T");
         return G{in_place, this->get()};
       }
     } else {
@@ -819,13 +859,16 @@ public:
 
   template<typename F>
   constexpr auto or_else(F&& func) const&& {
-    using G = impl::expect_monadic_chain_t<F, decltype(std::move(this->get_error()))>;
-    static_assert(meta::expected_with_error<G, E>, "F needs to return an expected with error E");
-
     if (this->has_value()) {
       if constexpr (std::is_void_v<T>) {
+        using G = impl::expect_monadic_chain_t<F, void>;
+        static_assert(meta::expected_with_type<G, T>,
+                      "F needs to return an expected with value T");
         return G{in_place};
       } else {
+        using G = impl::expect_monadic_chain_t<F, decltype(std::move(this->get_error()))>;
+        static_assert(meta::expected_with_type<G, T>,
+                      "F needs to return an expected with value T");
         return G{in_place, std::move(this->get())};
       }
     } else {
@@ -836,174 +879,240 @@ public:
 public:
   template<typename F>
   constexpr auto transform(F&& func) & {
-    using U = impl::expect_monadic_transform_t<F, decltype(this->get())>;
-    static_assert(!std::is_reference_v<U>, "F can't return a reference type");
+    if constexpr (std::is_void_v<T>) {
+      using U = impl::expect_monadic_transform_t<F, void>;
+      static_assert(!std::is_reference_v<U>, "F can't return a reference type");
 
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<U>) {
-        if constexpr (std::is_void_v<T>) {
+      if (this->has_value()) {
+        if constexpr (std::is_void_v<U>) {
           std::invoke(std::forward<F>(func));
+          return expected<void, E>{in_place};
         } else {
-          std::invoke(std::forward<F>(func), this->get());
-        }
-        return expected<void, E>{in_place};
-      } else {
-        if constexpr (std::is_void_v<T>) {
           return expected<U, E>{in_place, std::invoke(std::forward<F>(func))};
+        }
+      } else {
+        return expected<U, E>{unexpect, this->get_error()};
+      }
+    } else {
+      using U = impl::expect_monadic_transform_t<F, decltype(this->get())>;
+      static_assert(!std::is_reference_v<U>, "F can't return a reference type");
+
+      if (this->has_value()) {
+        if constexpr (std::is_void_v<U>) {
+          std::invoke(std::forward<F>(func), this->get());
+          return expected<void, E>{in_place};
         } else {
           return expected<U, E>{in_place, std::invoke(std::forward<F>(func), this->get())};
         }
+      } else {
+        return expected<U, E>{unexpect, this->get_error()};
       }
-    } else {
-      return expected<U, E>{unexpect, this->get_error()};
     }
   }
 
   template<typename F>
   constexpr auto transform(F&& func) && {
-    using U = impl::expect_monadic_transform_t<F, decltype(std::move(this->get()))>;
-    static_assert(!std::is_reference_v<U>, "F can't return a reference type");
+    if constexpr (std::is_void_v<T>) {
+      using U = impl::expect_monadic_transform_t<F, void>;
+      static_assert(!std::is_reference_v<U>, "F can't return a reference type");
 
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<U>) {
-        if constexpr (std::is_void_v<T>) {
+      if (this->has_value()) {
+        if constexpr (std::is_void_v<U>) {
           std::invoke(std::forward<F>(func));
+          return expected<void, E>{in_place};
         } else {
-          std::invoke(std::forward<F>(func), std::move(this->get()));
-        }
-        return expected<void, E>{in_place};
-      } else {
-        if constexpr (std::is_void_v<T>) {
           return expected<U, E>{in_place, std::invoke(std::forward<F>(func))};
+        }
+      } else {
+        return expected<U, E>{unexpect, std::move(this->get_error())};
+      }
+    } else {
+      using U = impl::expect_monadic_transform_t<F, decltype(std::move(this->get()))>;
+      static_assert(!std::is_reference_v<U>, "F can't return a reference type");
+
+      if (this->has_value()) {
+        if constexpr (std::is_void_v<U>) {
+          std::invoke(std::forward<F>(func), std::move(this->get()));
+          return expected<void, E>{in_place};
         } else {
           return expected<U, E>{in_place,
                                 std::invoke(std::forward<F>(func), std::move(this->get()))};
         }
+      } else {
+        return expected<U, E>{unexpect, std::move(this->get_error())};
       }
-    } else {
-      return expected<U, E>{unexpect, this->get_error()};
     }
   }
 
   template<typename F>
   constexpr auto transform(F&& func) const& {
-    using U = impl::expect_monadic_transform_t<F, decltype(this->get())>;
-    static_assert(!std::is_reference_v<U>, "F can't return a reference type");
+    if constexpr (std::is_void_v<T>) {
+      using U = impl::expect_monadic_transform_t<F, void>;
+      static_assert(!std::is_reference_v<U>, "F can't return a reference type");
 
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<U>) {
-        if constexpr (std::is_void_v<T>) {
+      if (this->has_value()) {
+        if constexpr (std::is_void_v<U>) {
           std::invoke(std::forward<F>(func));
+          return expected<void, E>{in_place};
         } else {
-          std::invoke(std::forward<F>(func), this->get());
-        }
-        return expected<void, E>{in_place};
-      } else {
-        if constexpr (std::is_void_v<T>) {
           return expected<U, E>{in_place, std::invoke(std::forward<F>(func))};
+        }
+      } else {
+        return expected<U, E>{unexpect, this->get_error()};
+      }
+    } else {
+      using U = impl::expect_monadic_transform_t<F, decltype(this->get())>;
+      static_assert(!std::is_reference_v<U>, "F can't return a reference type");
+
+      if (this->has_value()) {
+        if constexpr (std::is_void_v<U>) {
+          std::invoke(std::forward<F>(func), this->get());
+          return expected<void, E>{in_place};
         } else {
           return expected<U, E>{in_place, std::invoke(std::forward<F>(func), this->get())};
         }
+      } else {
+        return expected<U, E>{unexpect, this->get_error()};
       }
-    } else {
-      return expected<U, E>{unexpect, this->get_error()};
     }
   }
 
   template<typename F>
   constexpr auto transform(F&& func) const&& {
-    using U = impl::expect_monadic_transform_t<F, decltype(std::move(this->get()))>;
-    static_assert(!std::is_reference_v<U>, "F can't return a reference type");
+    if constexpr (std::is_void_v<T>) {
+      using U = impl::expect_monadic_transform_t<F, void>;
+      static_assert(!std::is_reference_v<U>, "F can't return a reference type");
 
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<U>) {
-        if constexpr (std::is_void_v<T>) {
+      if (this->has_value()) {
+        if constexpr (std::is_void_v<U>) {
           std::invoke(std::forward<F>(func));
+          return expected<void, E>{in_place};
         } else {
-          std::invoke(std::forward<F>(func), std::move(this->get()));
-        }
-        return expected<void, E>{in_place};
-      } else {
-        if constexpr (std::is_void_v<T>) {
           return expected<U, E>{in_place, std::invoke(std::forward<F>(func))};
+        }
+      } else {
+        return expected<U, E>{unexpect, std::move(this->get_error())};
+      }
+    } else {
+      using U = impl::expect_monadic_transform_t<F, decltype(std::move(this->get()))>;
+      static_assert(!std::is_reference_v<U>, "F can't return a reference type");
+
+      if (this->has_value()) {
+        if constexpr (std::is_void_v<U>) {
+          std::invoke(std::forward<F>(func), std::move(this->get()));
+          return expected<void, E>{in_place};
         } else {
           return expected<U, E>{in_place,
                                 std::invoke(std::forward<F>(func), std::move(this->get()))};
         }
+      } else {
+        return expected<U, E>{unexpect, std::move(this->get_error())};
       }
-    } else {
-      return expected<U, E>{unexpect, this->get_error()};
     }
   }
 
 public:
   template<typename F>
   constexpr auto transform_error(F&& func) & {
-    using G = impl::expect_monadic_transform_t<F, decltype(this->get_error())>;
-    static_assert(!std::is_void_v<G>, "F has to return a non void error value");
-    static_assert(!std::is_reference_v<G>, "F can't return a reference type");
+    if constexpr (std::is_void_v<T>) {
+      using G = impl::expect_monadic_transform_t<F, void>;
+      static_assert(!std::is_void_v<G>, "F has to return a non void error value");
+      static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<T>) {
+      if (this->has_value()) {
         return expected<void, G>{in_place};
       } else {
-        return expected<T, G>{in_place, this->get()};
+        return expected<T, G>{unexpect, std::invoke(std::forward<F>(func), this->get_error())};
       }
     } else {
-      return expected<T, G>{unexpect, std::invoke(std::forward<F>(func), this->get_error())};
+      using G = impl::expect_monadic_transform_t<F, decltype(this->get_error())>;
+      static_assert(!std::is_void_v<G>, "F has to return a non void error value");
+      static_assert(!std::is_reference_v<G>, "F can't return a reference type");
+
+      if (this->has_value()) {
+        return expected<T, G>{in_place, this->get()};
+      } else {
+        return expected<T, G>{unexpect, std::invoke(std::forward<F>(func), this->get_error())};
+      }
     }
   }
 
   template<typename F>
   constexpr auto transform_error(F&& func) && {
-    using G = impl::expect_monadic_transform_t<F, decltype(std::move(this->get_error()))>;
-    static_assert(!std::is_void_v<G>, "F has to return a non void error value");
-    static_assert(!std::is_reference_v<G>, "F can't return a reference type");
+    if constexpr (std::is_void_v<T>) {
+      using G = impl::expect_monadic_transform_t<F, void>;
+      static_assert(!std::is_void_v<G>, "F has to return a non void error value");
+      static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<T>) {
+      if (this->has_value()) {
         return expected<void, G>{in_place};
       } else {
-        return expected<T, G>{in_place, std::move(this->get())};
+        return expected<T, G>{unexpect,
+                              std::invoke(std::forward<F>(func), std::move(this->get_error()))};
       }
     } else {
-      return expected<T, G>{unexpect,
-                            std::invoke(std::forward<F>(func), std::move(this->get_error()))};
+      using G = impl::expect_monadic_transform_t<F, decltype(std::move(this->get_error()))>;
+      static_assert(!std::is_void_v<G>, "F has to return a non void error value");
+      static_assert(!std::is_reference_v<G>, "F can't return a reference type");
+
+      if (this->has_value()) {
+        return expected<T, G>{in_place, std::move(this->get())};
+      } else {
+        return expected<T, G>{unexpect,
+                              std::invoke(std::forward<F>(func), std::move(this->get_error()))};
+      }
     }
   }
 
   template<typename F>
   constexpr auto transform_error(F&& func) const& {
-    using G = impl::expect_monadic_transform_t<F, decltype(this->get_error())>;
-    static_assert(!std::is_void_v<G>, "F has to return a non void error value");
-    static_assert(!std::is_reference_v<G>, "F can't return a reference type");
+    if constexpr (std::is_void_v<T>) {
+      using G = impl::expect_monadic_transform_t<F, void>;
+      static_assert(!std::is_void_v<G>, "F has to return a non void error value");
+      static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<T>) {
+      if (this->has_value()) {
         return expected<void, G>{in_place};
       } else {
-        return expected<T, G>{in_place, this->get()};
+        return expected<T, G>{unexpect, std::invoke(std::forward<F>(func), this->get_error())};
       }
     } else {
-      return expected<T, G>{unexpect, std::invoke(std::forward<F>(func), this->get_error())};
+      using G = impl::expect_monadic_transform_t<F, decltype(this->get_error())>;
+      static_assert(!std::is_void_v<G>, "F has to return a non void error value");
+      static_assert(!std::is_reference_v<G>, "F can't return a reference type");
+
+      if (this->has_value()) {
+        return expected<T, G>{in_place, this->get()};
+      } else {
+        return expected<T, G>{unexpect, std::invoke(std::forward<F>(func), this->get_error())};
+      }
     }
   }
 
   template<typename F>
   constexpr auto transform_error(F&& func) const&& {
-    using G = impl::expect_monadic_transform_t<F, decltype(std::move(this->get_error()))>;
-    static_assert(!std::is_void_v<G>, "F has to return a non void error value");
-    static_assert(!std::is_reference_v<G>, "F can't return a reference type");
+    if constexpr (std::is_void_v<T>) {
+      using G = impl::expect_monadic_transform_t<F, void>;
+      static_assert(!std::is_void_v<G>, "F has to return a non void error value");
+      static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
-    if (this->has_value()) {
-      if constexpr (std::is_void_v<T>) {
+      if (this->has_value()) {
         return expected<void, G>{in_place};
       } else {
-        return expected<T, G>{in_place, std::move(this->get())};
+        return expected<T, G>{unexpect,
+                              std::invoke(std::forward<F>(func), std::move(this->get_error()))};
       }
     } else {
-      return expected<T, G>{unexpect,
-                            std::invoke(std::forward<F>(func), std::move(this->get_error()))};
+      using G = impl::expect_monadic_transform_t<F, decltype(std::move(this->get_error()))>;
+      static_assert(!std::is_void_v<G>, "F has to return a non void error value");
+      static_assert(!std::is_reference_v<G>, "F can't return a reference type");
+
+      if (this->has_value()) {
+        return expected<T, G>{in_place, std::move(this->get())};
+      } else {
+        return expected<T, G>{unexpect,
+                              std::invoke(std::forward<F>(func), std::move(this->get_error()))};
+      }
     }
   }
 };
@@ -1140,6 +1249,7 @@ public:
 
 public:
   using impl::expected_monadic_ops<void, E>::expected_monadic_ops;
+  using impl::expected_monadic_ops<void, E>::operator=;
 
 public:
   constexpr explicit operator bool() const noexcept { return this->has_value(); }
