@@ -19,7 +19,9 @@ public:
 template<typename E>
 class bad_expected_access : public bad_expected_access<void> {
 public:
-  explicit bad_expected_access(E err) : _err{std::move(err)} {}
+  explicit bad_expected_access(const E& err) : _err(err) {}
+
+  explicit bad_expected_access(E&& err) : _err(std::move(err)) {}
 
 public:
   E& error() & noexcept { return _err; }
@@ -373,7 +375,7 @@ public:
   template<typename... Args>
   constexpr T& emplace(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...> ||
                                                 std::is_nothrow_move_constructible_v<T>) {
-    if (_valid) {
+    if (has_value()) {
       expect_rebind_value<true>(_value, _error, std::forward<Args>(args)...);
     } else {
       expect_rebind_value<false>(_value, _error, std::forward<Args>(args)...);
@@ -386,7 +388,7 @@ public:
   constexpr T& emplace(std::initializer_list<U> il, Args&&... args) noexcept(
     std::is_nothrow_constructible_v<T, std::initializer_list<U>, Args...> ||
     std::is_nothrow_move_constructible_v<T>) {
-    if (_valid) {
+    if (has_value()) {
       expect_rebind_value<true>(_value, _error, il, std::forward<Args>(args)...);
     } else {
       expect_rebind_value<false>(_value, _error, il, std::forward<Args>(args)...);
@@ -399,7 +401,7 @@ public:
   constexpr E&
   emplace_error(Args&&... args) noexcept(std::is_nothrow_constructible_v<E, Args...> ||
                                          std::is_nothrow_move_constructible_v<E>) {
-    if (_valid) {
+    if (has_value()) {
       expect_rebind_error<true>(_value, _error, std::forward<Args>(args)...);
       _valid = false;
     } else {
@@ -412,7 +414,7 @@ public:
   constexpr E& emplace_error(std::initializer_list<U> il, Args&&... args) noexcept(
     std::is_nothrow_constructible_v<E, std::initializer_list<U>, Args...> ||
     std::is_nothrow_move_constructible_v<E>) {
-    if (_valid) {
+    if (has_value()) {
       expect_rebind_error<true>(_value, _error, il, std::forward<Args>(args)...);
       _valid = false;
     } else {
@@ -458,8 +460,6 @@ private:
   static constexpr bool _triv_destr = std::is_trivially_destructible_v<E>;
   static constexpr bool _triv_movec = std::is_trivially_move_constructible_v<E>;
   static constexpr bool _triv_copyc = std::is_trivially_copy_constructible_v<E>;
-  static constexpr bool _triv_movea = std::is_trivially_move_assignable_v<E>;
-  static constexpr bool _triv_copya = std::is_trivially_copy_assignable_v<E>;
 
 public:
   constexpr expected_storage() noexcept : _valid(true) {}
@@ -515,13 +515,9 @@ public:
   }
 
 public:
-  constexpr expected_storage& operator=(expected_storage&& other) noexcept
-  requires(_triv_movea)
-  = default;
-
   constexpr expected_storage&
   operator=(expected_storage&& other) noexcept(std::is_nothrow_move_constructible_v<E>)
-  requires(std::is_move_constructible_v<E> && !_triv_movea)
+  requires(std::is_move_constructible_v<E>)
   {
     if (has_value()) {
       if (other.has_error()) {
@@ -539,13 +535,9 @@ public:
   }
 
 public:
-  constexpr expected_storage& operator=(const expected_storage& other) noexcept
-  requires(_triv_copya)
-  = default;
-
   constexpr expected_storage&
   operator=(const expected_storage& other) noexcept(std::is_nothrow_copy_constructible_v<E>)
-  requires(std::is_copy_constructible_v<E> && !_triv_copya)
+  requires(std::is_copy_constructible_v<E>)
   {
     if (has_value()) {
       if (other.has_error()) {
@@ -589,6 +581,7 @@ public:
   emplace_error(Args&&... args) noexcept(std::is_nothrow_constructible_v<E, Args...>) {
     if (has_value()) {
       rebind_nullable<false>(_error, std::forward<Args>(args)...);
+      _valid = false;
     } else {
       rebind_nullable<true>(_error, std::forward<Args>(args)...);
     }
@@ -600,6 +593,7 @@ public:
     std::is_nothrow_constructible_v<E, std::initializer_list<U>, Args...>) {
     if (has_value()) {
       rebind_nullable<false>(_error, il, std::forward<Args>(args)...);
+      _valid = false;
     } else {
       rebind_nullable<true>(_error, il, std::forward<Args>(args)...);
     }
