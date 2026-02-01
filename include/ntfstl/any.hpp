@@ -65,13 +65,15 @@ protected:
 public:
   template<typename T>
   T& get() noexcept(NTF_NOEXCEPT) {
-    NTF_THROW_IF(meta::meta_traits<std::decay_t<T>>::get_id() != _type_id, ::ntf::bad_any_access);
+    NTF_THROW_IF(meta::meta_traits<std::decay_t<T>>::get_id() != _type_id,
+                 ::ntf::bad_any_access());
     return *std::launder(reinterpret_cast<std::decay_t<T>*>(_storage));
   }
 
   template<typename T>
   const T& get() const noexcept(NTF_NOEXCEPT) {
-    NTF_THROW_IF(meta::meta_traits<std::decay_t<T>>::get_id() != _type_id, ::ntf::bad_any_access);
+    NTF_THROW_IF(meta::meta_traits<std::decay_t<T>>::get_id() != _type_id,
+                 ::ntf::bad_any_access());
     return *std::launder(reinterpret_cast<const std::decay_t<T>*>(_storage));
   }
 

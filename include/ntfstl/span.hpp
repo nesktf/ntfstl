@@ -185,7 +185,7 @@ public:
   constexpr bool empty() const noexcept { return size() == 0u; }
 
   constexpr reference at(size_type idx) const {
-    NTF_THROW_IF(idx >= size(), std::out_of_range, fmt::format("Index {} out of range", idx));
+    NTF_THROW_IF(idx >= size(), std::out_of_range(fmt::format("Index {} out of range", idx)));
     return _data[idx];
   }
 

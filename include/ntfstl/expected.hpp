@@ -1163,22 +1163,22 @@ public:
 
 public:
   constexpr const T& value() const& {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>, std::as_const(this->get_error()));
+    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::as_const(this->get_error())));
     return this->get();
   }
 
   constexpr T& value() & {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>, std::as_const(this->get_error()));
+    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::as_const(this->get_error())));
     return this->get();
   }
 
   constexpr T&& value() && {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>, std::move(this->get_error()));
+    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::move(this->get_error())));
     return std::move(this->get());
   }
 
   constexpr const T&& value() const&& {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>, std::move(this->get_error()));
+    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::move(this->get_error())));
     return std::move(this->get());
   }
 
@@ -1254,11 +1254,11 @@ public:
 
 public:
   constexpr void value() const& {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>, std::as_const(this->get_error()));
+    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::as_const(this->get_error())));
   }
 
   constexpr void value() && {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>, std::move(this->get_error()));
+    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::move(this->get_error())));
   }
 
 public:

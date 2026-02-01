@@ -119,22 +119,18 @@ void assert_failure_fmt(const char* cond, const char* func, const char* file, in
 #endif
 
 #if defined(NTF_DISABLE_EXCEPTIONS) && NTF_DISABLE_EXCEPTIONS
-#define NTF_THROW(_type, ...) \
-  NTF_ASSERT(false,           \
-             "thrown " NTF_STRINGIFY(_type) __VA_OPT__("with args" NTF_STRINGIFY(__VA_ARGS__)))
-#define NTF_NOEXCEPT  NTF_ASSERT_NOEXCEPT
-#define NTF_RETHROW() NTF_ASSERT(false, "caught unknown exception")
+#define NTF_THROW(_thing) NTF_ASSERT(false, "thrown " NTF_STRINGIFY(_thing))
+#define NTF_NOEXCEPT      NTF_ASSERT_NOEXCEPT
+#define NTF_RETHROW()     NTF_ASSERT(false, "caught unknown exception")
 #else
-#define NTF_THROW(_type, ...) \
-  throw _type {               \
-    __VA_ARGS__               \
-  }
+#define NTF_THROW(_thing) throw _thing
+
 #define NTF_NOEXCEPT  false
 #define NTF_RETHROW() throw
 #endif
-#define NTF_THROW_IF(_cond, _type, ...) \
-  if (_cond) {                          \
-    NTF_THROW(_type, __VA_ARGS__);      \
+#define NTF_THROW_IF(_cond, _thing) \
+  if (_cond) {                      \
+    NTF_THROW(_thing);              \
   }
 
 // RAII declarations/definitions

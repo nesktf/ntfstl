@@ -494,27 +494,27 @@ public:
 public:
   const T& get_cref(cspan_type slots, handle_type handle) const {
     const auto idx = handle.index();
-    NTF_THROW_IF(idx >= slots.size(), std::out_of_range,
-                 fmt::format("Index {} out of range in handle", idx));
+    NTF_THROW_IF(idx >= slots.size(),
+                 std::out_of_range(fmt::format("Index {} out of range in handle", idx)));
     const slot_type& slot = slots[idx];
-    NTF_THROW_IF(slot.is_empty(), std::out_of_range,
-                 fmt::format("Empty item at index {} from handle", idx));
+    NTF_THROW_IF(slot.is_empty(),
+                 std::out_of_range(fmt::format("Empty item at index {} from handle", idx)));
     const auto& [obj, slot_handle] = slot.obj;
-    NTF_THROW_IF(slot_handle != handle, std::out_of_range,
-                 fmt::format("Invalid version {} in handle", handle.version()));
+    NTF_THROW_IF(slot_handle != handle,
+                 std::out_of_range(fmt::format("Invalid version {} in handle", handle.version())));
     return obj;
   }
 
   T& get_ref(span_type slots, handle_type handle) const {
     const auto idx = handle.index();
-    NTF_THROW_IF(idx >= slots.size(), std::out_of_range,
-                 fmt::format("Index {} out of range in handle", idx));
+    NTF_THROW_IF(idx >= slots.size(),
+                 std::out_of_range(fmt::format("Index {} out of range in handle", idx)));
     slot_type& slot = slots[idx];
-    NTF_THROW_IF(slot.is_empty(), std::out_of_range,
-                 fmt::format("Empty item at index {} from handle", idx));
+    NTF_THROW_IF(slot.is_empty(),
+                 std::out_of_range(fmt::format("Empty item at index {} from handle", idx)));
     auto& [obj, slot_handle] = slot.obj;
-    NTF_THROW_IF(slot_handle != handle, std::out_of_range,
-                 fmt::format("Invalid version {} in handle", handle.version()));
+    NTF_THROW_IF(slot_handle != handle,
+                 std::out_of_range(fmt::format("Invalid version {} in handle", handle.version())));
     return obj;
   }
 
@@ -618,7 +618,7 @@ public:
   constexpr freelist(std::initializer_list<T> il)
   requires(std::copy_constructible<T>)
       : base_t{extent} {
-    NTF_THROW_IF(il.size() != extent, std::out_of_range, "Invalid initializer_list size");
+    NTF_THROW_IF(il.size() != extent, std::out_of_range("Invalid initializer_list size"));
     for (u32 idx = 0u; const auto& obj : il) {
       auto& slot = _slots[idx];
       slot.construct(idx, handle_type::INIT_VERSION, obj);
@@ -720,7 +720,7 @@ public:
   const_iterator cend() const noexcept { return {_slots.data(), handle_type::NULL_INDEX}; }
 
   reference front() {
-    NTF_THROW_IF(empty(), std::out_of_range, "Empty freelist");
+    NTF_THROW_IF(empty(), std::out_of_range("Empty freelist"));
     NTF_ASSERT(base_t::front_idx() != handle_type::NULL_INDEX);
     NTF_ASSERT(base_t::front_idx() < _slots.size());
     auto& slot = _slots[base_t::front_idx()];
@@ -729,7 +729,7 @@ public:
   }
 
   const_reference front() const {
-    NTF_THROW_IF(empty(), std::out_of_range, "Empty freelist");
+    NTF_THROW_IF(empty(), std::out_of_range("Empty freelist"));
     NTF_ASSERT(base_t::front_idx() != handle_type::NULL_INDEX);
     NTF_ASSERT(base_t::front_idx() < _slots.size());
     const auto& slot = _slots[base_t::front_idx()];
@@ -738,7 +738,7 @@ public:
   }
 
   reference back() {
-    NTF_THROW_IF(empty(), std::out_of_range, "Empty freelist");
+    NTF_THROW_IF(empty(), std::out_of_range("Empty freelist"));
     NTF_ASSERT(base_t::back_idx() != handle_type::NULL_INDEX);
     NTF_ASSERT(base_t::back_idx() < _slots.size());
     auto& slot = _slots[base_t::back_idx()];
@@ -747,7 +747,7 @@ public:
   }
 
   const_reference back() const {
-    NTF_THROW_IF(empty(), std::out_of_range, "Empty freelist");
+    NTF_THROW_IF(empty(), std::out_of_range("Empty freelist"));
     NTF_ASSERT(base_t::back_idx() != handle_type::NULL_INDEX);
     NTF_ASSERT(base_t::back_idx() < _slots.size());
     const auto& slot = _slots[base_t::back_idx()];
@@ -901,7 +901,7 @@ public:
   const_iterator cend() const noexcept { return {_slots.data(), handle_type::NULL_INDEX}; }
 
   reference front() {
-    NTF_THROW_IF(empty(), std::out_of_range, "Empty freelist");
+    NTF_THROW_IF(empty(), std::out_of_range("Empty freelist"));
     NTF_ASSERT(base_t::front_idx() != handle_type::NULL_INDEX);
     NTF_ASSERT(base_t::front_idx() < _slots.size());
     auto& slot = _slots[base_t::front_idx()];
@@ -910,7 +910,7 @@ public:
   }
 
   const_reference front() const {
-    NTF_THROW_IF(empty(), std::out_of_range, "Empty freelist");
+    NTF_THROW_IF(empty(), std::out_of_range("Empty freelist"));
     NTF_ASSERT(base_t::front_idx() != handle_type::NULL_INDEX);
     NTF_ASSERT(base_t::front_idx() < _slots.size());
     const auto& slot = _slots[base_t::front_idx()];
@@ -919,7 +919,7 @@ public:
   }
 
   reference back() {
-    NTF_THROW_IF(empty(), std::out_of_range, "Empty freelist");
+    NTF_THROW_IF(empty(), std::out_of_range("Empty freelist"));
     NTF_ASSERT(base_t::back_idx() != handle_type::NULL_INDEX);
     NTF_ASSERT(base_t::back_idx() < _slots.size());
     auto& slot = _slots[base_t::back_idx()];
@@ -928,7 +928,7 @@ public:
   }
 
   const_reference back() const {
-    NTF_THROW_IF(empty(), std::out_of_range, "Empty freelist");
+    NTF_THROW_IF(empty(), std::out_of_range("Empty freelist"));
     NTF_ASSERT(base_t::back_idx() != handle_type::NULL_INDEX);
     NTF_ASSERT(base_t::back_idx() < _slots.size());
     const auto& slot = _slots[base_t::back_idx()];

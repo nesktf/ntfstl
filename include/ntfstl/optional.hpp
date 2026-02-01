@@ -398,22 +398,22 @@ public:
 
 public:
   constexpr T& value() & noexcept(NTF_NOEXCEPT) {
-    NTF_THROW_IF(!base_t::has_value(), ::ntf::bad_optional_access);
+    NTF_THROW_IF(!base_t::has_value(), ::ntf::bad_optional_access());
     return base_t::get_value();
   }
 
   constexpr T&& value() && noexcept(NTF_NOEXCEPT) {
-    NTF_THROW_IF(!base_t::has_value(), ::ntf::bad_optional_access);
+    NTF_THROW_IF(!base_t::has_value(), ::ntf::bad_optional_access());
     return std::move(base_t::get_value());
   }
 
   constexpr const T& value() const& noexcept(NTF_NOEXCEPT) {
-    NTF_THROW_IF(!base_t::has_value(), ::ntf::bad_optional_access);
+    NTF_THROW_IF(!base_t::has_value(), ::ntf::bad_optional_access());
     return base_t::get_value();
   }
 
   constexpr const T&& value() const&& noexcept(NTF_NOEXCEPT) {
-    NTF_THROW_IF(!base_t::has_value(), ::ntf::bad_optional_access);
+    NTF_THROW_IF(!base_t::has_value(), ::ntf::bad_optional_access());
     return std::move(base_t::get_value());
   }
 
