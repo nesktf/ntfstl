@@ -3,15 +3,15 @@
 #include <concepts>
 #include <functional>
 
-#define NTF_DEFINE_TEMPLATE_CHECKER(_templ) \
-template<typename> \
-struct _templ##_check : public ::std::false_type {};\
-template<typename... Ts> \
-struct _templ##_check<_templ<Ts...>> : public ::std::true_type{}; \
-template<typename T> \
-constexpr bool _templ##_check_v = _templ##_check<T>::value; \
-template<typename T> \
-concept _templ##_type = _templ##_check_v<T>
+#define NTF_DEFINE_TEMPLATE_CHECKER(_templ)                          \
+  template<typename>                                                 \
+  struct _templ##_check : public ::std::false_type {};               \
+  template<typename... Ts>                                           \
+  struct _templ##_check<_templ<Ts...>> : public ::std::true_type {}; \
+  template<typename T>                                               \
+  constexpr bool _templ##_check_v = _templ##_check<T>::value;        \
+  template<typename T>                                               \
+  concept _templ##_type = _templ##_check_v<T>
 
 namespace ntf::meta {
 
@@ -38,9 +38,9 @@ template<typename T>
 concept not_void = !std::is_void_v<T>;
 
 template<typename T>
-concept is_nothrow_forward_constructible = 
-  (std::is_rvalue_reference_v<T> && std::is_nothrow_move_constructible_v<std::remove_cvref_t<T>>)
-  ||
+concept is_nothrow_forward_constructible =
+  (std::is_rvalue_reference_v<T> &&
+   std::is_nothrow_move_constructible_v<std::remove_cvref_t<T>>) ||
   (std::is_lvalue_reference_v<T> && std::is_nothrow_copy_constructible_v<std::remove_cvref_t<T>>);
 
 template<typename T>
@@ -58,5 +58,8 @@ concept is_nothrow_const_invocable = requires(const T& obj, Args... args) {
   { std::invoke(obj, std::forward<Args>(args)...) } -> std::convertible_to<Ret>;
   requires noexcept(std::invoke(obj, std::forward<Args>(args)...));
 };
+
+template<typename T>
+concept move_swappable_type = std::is_move_constructible_v<T> && std::is_move_assignable_v<T>;
 
 } // namespace ntf::meta
