@@ -37,7 +37,7 @@ concept allocator_type = requires(Alloc& alloc, const Alloc& const_alloc,
   { alloc.deallocate(ptr, n) } -> std::same_as<void>;
   { const_alloc == const_alloc } -> std::same_as<bool>;
   requires std::copy_constructible<Alloc>;
-  requires noexcept(alloc.deallocate(ptr, n));
+  // requires noexcept(alloc.deallocate(ptr, n));
   requires noexcept(const_alloc == const_alloc);
 };
 
