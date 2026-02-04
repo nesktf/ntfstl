@@ -268,7 +268,7 @@ auto make_unique_arr_pool(::ntf::uninitialized_t, size_t n, ::ntf::mem::memory_p
 }
 
 template<typename T, typename Alloc>
-requires(::ntf::meta::allocator_type<std::remove_cvref_t<Alloc>, T> &&
+requires(::ntf::meta::allocator_type_of<std::remove_cvref_t<Alloc>, T> &&
          !std::same_as<T, std::remove_cvref_t<Alloc>> &&
          !std::same_as<::ntf::mem::memory_pool&, Alloc> && std::is_default_constructible_v<T>)
 auto make_unique_arr_alloc(size_t n, Alloc&& alloc)
@@ -284,7 +284,7 @@ auto make_unique_arr_alloc(size_t n, Alloc&& alloc)
 }
 
 template<typename T, typename Alloc>
-requires(::ntf::meta::allocator_type<std::remove_cvref_t<Alloc>, T> &&
+requires(::ntf::meta::allocator_type_of<std::remove_cvref_t<Alloc>, T> &&
          !std::same_as<T, std::remove_cvref_t<Alloc>> &&
          !std::same_as<::ntf::mem::memory_pool&, Alloc> && std::copy_constructible<T>)
 auto make_unique_arr_alloc(size_t n, const T& copy, Alloc&& alloc)
@@ -300,7 +300,7 @@ auto make_unique_arr_alloc(size_t n, const T& copy, Alloc&& alloc)
 }
 
 template<typename T, typename Alloc>
-requires(::ntf::meta::allocator_type<std::remove_cvref_t<Alloc>, T> &&
+requires(::ntf::meta::allocator_type_of<std::remove_cvref_t<Alloc>, T> &&
          !std::same_as<T, std::remove_cvref_t<Alloc>> &&
          !std::same_as<::ntf::mem::memory_pool&, Alloc> && std::is_trivially_constructible_v<T>)
 auto make_unique_arr_alloc(::ntf::uninitialized_t, size_t n, Alloc&& alloc)
