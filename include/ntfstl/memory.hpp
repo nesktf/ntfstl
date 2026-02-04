@@ -3,9 +3,7 @@
 #include <ntfstl/expected.hpp>
 #include <ntfstl/meta.hpp>
 
-#include <concepts>
-#include <functional>
-#include <type_traits>
+#include <memory>
 
 namespace ntf::meta {
 
