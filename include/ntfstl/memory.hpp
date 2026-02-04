@@ -5,6 +5,7 @@
 
 #include <concepts>
 #include <functional>
+#include <memory>
 #include <type_traits>
 
 namespace ntf::meta {
@@ -376,7 +377,10 @@ struct memory_pool {
   virtual std::pair<void*, size_t> bulk_allocate(size_t size, size_t alignment) = 0;
   virtual void bulk_deallocate(void* ptr, size_t size) noexcept = 0;
 
-  virtual bool is_equal(const memory_pool& other) const noexcept { return true; }
+  virtual bool is_equal(const memory_pool& other) const noexcept {
+    NTF_UNUSED(other);
+    return true;
+  }
 };
 
 template<typename T>
@@ -762,7 +766,10 @@ public:
     NTF_UNUSED(size);
   }
 
-  constexpr bool is_equal(const stack_arena& other) const noexcept { return true; }
+  constexpr bool is_equal(const stack_arena& other) const noexcept {
+    NTF_UNUSED(other);
+    return true;
+  }
 
   constexpr void clear() noexcept { _used = 0; }
 
