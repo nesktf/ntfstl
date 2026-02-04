@@ -31,7 +31,7 @@ private:
   int_arena* _arena;
 };
 
-static_assert(::ntf::meta::allocator_type<int_alloc, int>);
+static_assert(::ntf::meta::allocator_type_of<int_alloc, int>);
 using int_alloc_del = ::ntf::mem::allocator_delete<int, int_alloc>;
 
 } // namespace

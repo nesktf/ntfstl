@@ -32,14 +32,30 @@ concept bulk_memory_pool_type =
     requires noexcept(pool.bulk_deallocate(ptr, size));
   };
 
-template<typename Alloc, typename T>
+template<typename Alloc>
 concept allocator_type = requires(Alloc& alloc, const Alloc& const_alloc,
-                                  std::add_pointer_t<T> ptr, typename Alloc::size_type n) {
-  { alloc.allocate(n) } -> std::convertible_to<std::add_pointer_t<T>>;
+                                  typename std::allocator_traits<Alloc>::pointer ptr,
+                                  typename std::allocator_traits<Alloc>::size_type n) {
+  { alloc.allocate(n) } -> std::convertible_to<typename std::allocator_traits<Alloc>::pointer>;
   { alloc.deallocate(ptr, n) } -> std::same_as<void>;
   { const_alloc == const_alloc } -> std::same_as<bool>;
-  requires std::same_as<typename Alloc::value_type, T>;
+  requires std::copy_constructible<Alloc>;
+  requires noexcept(alloc.deallocate(ptr, n));
+  requires noexcept(const_alloc == const_alloc);
 };
+
+template<typename Alloc, typename T>
+concept allocator_type_of =
+  allocator_type<Alloc> && std::same_as<typename std::allocator_traits<Alloc>::value_type, T>;
+
+template<typename Alloc>
+concept stateless_allocator_type =
+  allocator_type<Alloc> && std::allocator_traits<Alloc>::is_always_equal::value;
+
+template<typename Alloc>
+concept nothrow_move_assignable_allocator =
+  (std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value ||
+   std::allocator_traits<Alloc>::is_always_equal::value);
 
 template<typename Deleter, typename T>
 concept array_deleter_type = requires(Deleter& del, T* arr, typename Deleter::size_type n) {
@@ -784,3 +800,10 @@ private:
 };
 
 } // namespace ntf::mem
+
+namespace ntf {
+
+template<typename T>
+using default_alloc = ::ntf::mem::default_pool::allocator<T>;
+
+} // namespace ntf

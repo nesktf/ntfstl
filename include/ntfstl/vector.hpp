@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ntfstl/meta.hpp>
+#include <ntfstl/span.hpp>
 #include <ntfstl/types.hpp>
 
 #include <ntfstl/memory.hpp>
@@ -11,35 +12,116 @@ namespace ntf {
 
 namespace impl {
 
+template<typename T, size_t Size>
+struct inplace_vec_data {
+  alignas(T[Size]) u8 _buffer[Size * sizeof(T)];
+
+  const T* data() const noexcept { return reinterpret_cast<const T*>(&_buffer[0]); }
+
+  T* data() noexcept { return reinterpret_cast<T*>(&_buffer[0]); }
+};
+
 template<typename T>
-void vec_construct_range(T* data, size_t count) {
+void vec_construct_range(T* data,
+                         size_t count) noexcept(std::is_nothrow_default_constructible_v<T>) {
   for (size_t i = 0; i < count; ++i) {
-    new (data + i) T();
+    if constexpr (!std::is_nothrow_default_constructible_v<T> &&
+                  !std::is_trivially_destructible_v<T>) {
+      try {
+        new (data + i) T();
+      } catch (...) {
+        std::destroy_n(data, i);
+        NTF_RETHROW();
+      }
+    } else {
+      new (data + i) T();
+    }
   }
 }
 
 template<typename T>
-void vec_construct_range(T* data, size_t count, const T& copy) {
+void vec_construct_range(T* data, size_t count,
+                         const T& copy) noexcept(std::is_nothrow_copy_constructible_v<T>) {
   for (size_t i = 0; i < count; ++i) {
-    new (data + i) T(copy);
-  }
-}
-
-template<typename T>
-void vec_construct_range(T* data, std::initializer_list<T> il) {
-  for (size_t i = 0; const auto& obj : il) {
-    new (data + i) T(obj);
-    ++i;
+    if constexpr (!std::is_nothrow_default_constructible_v<T> &&
+                  !std::is_trivially_destructible_v<T>) {
+      try {
+        new (data + i) T();
+      } catch (...) {
+        std::destroy_n(data, i);
+        NTF_RETHROW();
+      }
+    } else {
+      new (data + i) T(copy);
+    }
   }
 }
 
 template<typename T, typename InputIt>
-void vec_construct_range_it(T* data, InputIt first, InputIt last) {
+void vec_construct_range_it(T* data, InputIt first,
+                            InputIt last) noexcept(std::is_nothrow_copy_constructible_v<T>) {
   size_t i = 0;
-  for (InputIt it = first; it != last; ++it) {
-    new (data + i) T(*it);
-    ++i;
+  for (InputIt it = first; it != last; ++it, ++i) {
+    if constexpr (!std::is_nothrow_default_constructible_v<T> &&
+                  !std::is_trivially_destructible_v<T>) {
+      try {
+        new (data + i) T();
+      } catch (...) {
+        std::destroy_n(data, i);
+        NTF_RETHROW();
+      }
+    } else {
+      new (data + i) T(*it);
+    }
   }
+}
+
+template<typename T, typename InputIt>
+void vec_construct_range_truncate(T* data, size_t count, InputIt first,
+                                  InputIt last) noexcept(std::is_nothrow_copy_constructible_v<T>) {
+  size_t i = 0;
+  for (InputIt it = first; it != last && i < count; ++it, ++i) {
+    if constexpr (!std::is_nothrow_default_constructible_v<T> &&
+                  !std::is_trivially_destructible_v<T>) {
+      try {
+        new (data + i) T();
+      } catch (...) {
+        std::destroy_n(data, i);
+        NTF_RETHROW();
+      }
+    } else {
+      new (data + i) T(*it);
+    }
+  }
+}
+
+template<size_t InnerCap, typename T>
+void vec_array_move_assign(T* dst, T* src, size_t dst_sz,
+                           size_t src_sz) noexcept(std::is_nothrow_move_constructible_v<T>) {
+  static_assert(std::is_nothrow_destructible_v<T>);
+
+  if constexpr (std::is_nothrow_move_constructible_v<T>) {
+    if constexpr (!std::is_trivially_destructible_v<T>) {
+      std::destroy_n(dst, dst_sz);
+    }
+    if constexpr (std::is_trivially_move_constructible_v<T>) {
+      std::memcpy(dst, src, src_sz * sizeof(T));
+    } else {
+      for (size_t i = 0; i < src_sz; ++i) {
+        new (dst + i) T(std::move(src[i]));
+      }
+    }
+  } else {
+    // Try to copy in a temporary buffer first
+    alignas(T[InnerCap]) u8 buffer_data[InnerCap * sizeof(T)];
+    T* buffer = reinterpret_cast<T*>(&buffer_data[0]);
+    ::ntf::impl::vec_construct_range_it(buffer, src, src + src_sz);
+
+    if constexpr (!std::is_trivially_destructible_v<T>) {
+      std::destroy_n(dst, dst_sz);
+    }
+  }
+  // TBD
 }
 
 template<typename T, typename Alloc>
@@ -49,9 +131,8 @@ public:
   requires(std::is_default_constructible_v<Alloc>)
       : Alloc() {}
 
-  vec_alloc(const Alloc& alloc) noexcept(std::is_nothrow_copy_constructible_v<Alloc>)
-  requires(std::is_copy_constructible_v<Alloc>)
-      : Alloc(alloc) {}
+  vec_alloc(const Alloc& alloc) noexcept(std::is_nothrow_copy_constructible_v<Alloc>) :
+      Alloc(alloc) {}
 
 public:
   T* allocate(size_t n) { return Alloc::allocate(n); }
@@ -66,7 +147,7 @@ public:
 
 } // namespace impl
 
-template<typename T, typename Alloc = ::ntf::mem::default_pool::allocator<T>>
+template<typename T, ::ntf::meta::allocator_type_of<T> Alloc = ::ntf::default_alloc<T>>
 class vec : private ::ntf::impl::vec_alloc<T, Alloc> {
 public:
   using value_type = T;
@@ -94,9 +175,8 @@ public:
   requires(std::is_default_constructible_v<allocator_type>)
       : alloc_t(), _data(), _size(), _capacity() {}
 
-  vec(const allocator_type& alloc) noexcept(std::is_nothrow_copy_constructible_v<allocator_type>)
-  requires(std::is_copy_constructible_v<allocator_type>)
-      : alloc_t(alloc), _data(), _size(), _capacity() {}
+  vec(const allocator_type& alloc) noexcept(std::is_nothrow_copy_constructible_v<allocator_type>) :
+      alloc_t(alloc), _data(), _size(), _capacity() {}
 
   explicit vec(size_type n)
   requires(std::is_default_constructible_v<allocator_type> &&
@@ -104,17 +184,34 @@ public:
       : alloc_t(), _size(n), _capacity(n) {
     _data = alloc_t::allocate(size());
     if constexpr (!std::is_trivially_default_constructible_v<value_type>) {
-      ::ntf::impl::vec_construct_range(data(), size());
+      if constexpr (!std::is_nothrow_default_constructible_v<value_type>) {
+        ::ntf::impl::vec_construct_range(data(), size());
+      } else {
+        try {
+          ::ntf::impl::vec_construct_range(data(), size());
+        } catch (...) {
+          alloc_t::deallocate(_data, size());
+          NTF_RETHROW();
+        }
+      }
     }
   }
 
   explicit vec(size_type n, const allocator_type& alloc)
-  requires(std::is_copy_constructible_v<allocator_type> &&
-           std::is_default_constructible_v<value_type>)
+  requires(std::is_default_constructible_v<value_type>)
       : alloc_t(alloc), _size(n), _capacity(n) {
     _data = alloc_t::allocate(size());
     if constexpr (!std::is_trivially_default_constructible_v<value_type>) {
-      ::ntf::impl::vec_construct_range(data(), size());
+      if constexpr (!std::is_nothrow_default_constructible_v<value_type>) {
+        ::ntf::impl::vec_construct_range(data(), size());
+      } else {
+        try {
+          ::ntf::impl::vec_construct_range(data(), size());
+        } catch (...) {
+          alloc_t::deallocate(_data, size());
+          NTF_RETHROW();
+        }
+      }
     }
   }
 
@@ -123,15 +220,32 @@ public:
            std::is_copy_constructible_v<value_type>)
       : alloc_t(), _size(n), _capacity(n) {
     _data = alloc_t::allocate(size());
-    ::ntf::impl::vec_construct_range(data(), size(), val);
+    if constexpr (!std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range(data(), size(), val);
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range(data(), size(), val);
+      } catch (...) {
+        alloc_t::deallocate(_data, size());
+        NTF_RETHROW();
+      }
+    }
   }
 
   vec(size_type n, const value_type& val, const allocator_type& alloc)
-  requires(std::is_copy_constructible_v<allocator_type> &&
-           std::is_copy_constructible_v<value_type>)
+  requires(std::is_copy_constructible_v<value_type>)
       : alloc_t(alloc), _size(n), _capacity(n) {
     _data = alloc_t::allocate(size());
-    ::ntf::impl::vec_construct_range(data(), size(), val);
+    if constexpr (!std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range(data(), size(), val);
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range(data(), size(), val);
+      } catch (...) {
+        alloc_t::deallocate(_data, size());
+        NTF_RETHROW();
+      }
+    }
   }
 
   vec(std::initializer_list<value_type> il)
@@ -139,15 +253,32 @@ public:
            std::is_copy_constructible_v<value_type>)
       : alloc_t(), _size(il.size()), _capacity(il.size()) {
     _data = alloc_t::allocate(size());
-    ::ntf::impl::vec_construct_range(data(), size(), il);
+    if constexpr (!std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range_it(data(), il.begin(), il.end());
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range_it(data(), il.begin(), il.end());
+      } catch (...) {
+        alloc_t::deallocate(_data, size());
+        NTF_RETHROW();
+      }
+    }
   }
 
   vec(std::initializer_list<value_type> il, const allocator_type& alloc)
-  requires(std::is_copy_constructible_v<allocator_type> &&
-           std::is_copy_constructible_v<value_type>)
+  requires(std::is_copy_constructible_v<value_type>)
       : alloc_t(alloc), _size(il.size()), _capacity(il.size()) {
     _data = alloc_t::allocate(size());
-    ::ntf::impl::vec_construct_range(data(), size(), il);
+    if constexpr (!std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range_it(data(), il.begin(), il.end());
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range_it(data(), il.begin(), il.end());
+      } catch (...) {
+        alloc_t::deallocate(_data, size());
+        NTF_RETHROW();
+      }
+    }
   }
 
   template<typename InputIt>
@@ -155,18 +286,33 @@ public:
   requires(std::is_default_constructible_v<allocator_type> &&
            std::is_copy_constructible_v<value_type>)
       : alloc_t(), _size(std::distance(first, last)), _capacity(_size) {
-
     _data = alloc_t::allocate(size());
-    ::ntf::impl::vec_construct_range_it(data(), size(), first, last);
+    if constexpr (!std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range_it(data(), first, last);
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range_it(data(), first, last);
+      } catch (...) {
+        alloc_t::deallocate(_data, size());
+        NTF_RETHROW();
+      }
+    }
   }
 
-  template<typename InputIt>
+  template<std::input_iterator InputIt>
   vec(InputIt first, InputIt last, const allocator_type& alloc)
-  requires(std::is_copy_constructible_v<allocator_type> &&
-           std::is_copy_constructible_v<value_type>)
+  requires(std::is_copy_constructible_v<value_type>)
       : alloc_t(alloc), _size(std::distance(first, last)), _capacity(_size) {
     _data = alloc_t::allocate(size());
-    ::ntf::impl::vec_construct_range_it(data(), size(), first, last);
+    if constexpr (!std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range_it(data(), first, last);
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range_it(data(), first, last);
+      } catch (...) {
+        alloc_t::deallocate(_data, size());
+      }
+    }
   }
 
 public:
@@ -179,18 +325,18 @@ public:
   }
 
   vec(vec&& other) noexcept(std::is_nothrow_copy_constructible_v<allocator_type>)
-  requires(!std::is_default_constructible_v<allocator_type> &&
-           std::is_copy_constructible_v<allocator_type>)
-      : alloc_t(), _data(other._data), _size(other._size), _capacity(other._capacity) {
+  requires(!std::is_default_constructible_v<allocator_type>)
+      :
+      alloc_t(other.get_allocator()), _data(other._data), _size(other._size),
+      _capacity(other._capacity) {
     other._data = nullptr;
     other._size = 0;
     other._capacity = 0;
   }
 
   vec(vec&& other,
-      const allocator_type& alloc) noexcept(std::is_nothrow_copy_constructible_v<allocator_type>)
-  requires(std::is_copy_constructible_v<allocator_type>)
-      : alloc_t(alloc), _data(other._data), _size(other._size), _capacity(other._capacity) {
+      const allocator_type& alloc) noexcept(std::is_nothrow_copy_constructible_v<allocator_type>) :
+      alloc_t(alloc), _data(other._data), _size(other._size), _capacity(other._capacity) {
     other._data = nullptr;
     other._size = 0;
     other._capacity = 0;
@@ -199,32 +345,25 @@ public:
   vec(const vec& other)
   requires(std::is_default_constructible_v<allocator_type>)
       : alloc_t(), _data(other._data), _size(other._size), _capacity(other._capacity) {
-    // TBD
+    _copy_construct(other);
   }
 
   vec(const vec& other)
-  requires(!std::is_default_constructible_v<allocator_type> &&
-           std::is_copy_constructible_v<allocator_type>)
+  requires(!std::is_default_constructible_v<allocator_type>)
       :
       alloc_t(other.get_allocator()), _data(other._data), _size(other._size),
       _capacity(other._capacity) {
-    // TBD
+    _copy_construct(other);
   }
 
-  vec(const vec& other, const allocator_type& alloc)
-  requires(std::is_copy_constructible_v<allocator_type>)
-      : alloc_t(alloc), _data(other._data), _size(other._size), _capacity(other._capacity) {
-    // TBD
+  vec(const vec& other, const allocator_type& alloc) :
+      alloc_t(alloc), _data(other._data), _size(other._size), _capacity(other._capacity) {
+    _copy_construct(other);
   }
 
   ~vec() noexcept {
     if (!empty()) {
-      if constexpr (!std::is_trivially_destructible_v<value_type>) {
-        for (iterator it = begin(); it != end(); ++it) {
-          std::destroy_at(&*it);
-        }
-      }
-      alloc_t::deallocate(_data, capacity());
+      _do_destroy();
     }
   }
 
@@ -267,7 +406,7 @@ public:
     // TBD
   }
 
-  template<typename InputIt>
+  template<std::input_iterator InputIt>
   iterator insert(const_iterator pos, InputIt first, InputIt last) {
     // TBD
   }
@@ -302,46 +441,90 @@ public:
     // TBD
   }
 
-  void clear() {
+  void clear() noexcept {
+    if (!std::is_trivially_destructible_v<value_type>) {
+      std::destroy_n(data(), size());
+    }
+    _size = 0;
+  }
+
+  void resize(size_type n)
+  requires(std::is_default_constructible_v<value_type>)
+  {
     // TBD
   }
 
-  void resize(size_type n) {
+  void resize(size_type n, const value_type& val)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
   }
 
 public:
-  vec& operator=(vec& other) noexcept(
-    (std::allocator_traits<allocator_type>::propagate_on_container_move_assignment::value ||
-     std::allocator_traits<allocator_type>::is_always_equal::value)) {
+  vec&
+  operator=(vec&& other) noexcept(::ntf::meta::nothrow_move_assignable_allocator<allocator_type>) {
+    if (this == &other) {
+      return *this;
+    }
+
+    if (!empty()) {
+      _do_destroy();
+    }
+
+    _data = other._data;
+    _size = other._size;
+    _capacity = other._capacity;
+
+    if constexpr (std::allocator_traits<
+                    allocator_type>::propagate_on_container_move_assignment::value) {
+      get_allocator() = std::move(other.get_allocator());
+    }
+
+    other._data = nullptr;
+    other._size = 0;
+    other._capacity = 0;
+
+    return *this;
+  }
+
+  vec& operator=(const vec& other)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  vec& operator=(const vec& other) {
+  vec& operator=(std::initializer_list<value_type> il)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
+    return assign(il);
+  }
+
+  vec& assign(size_type count, const T& value)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  vec& operator=(std::initializer_list<value_type> il) { return assign(il); }
-
-  vec& assign(size_type count, const T& value) {
+  vec& assign(size_type count)
+  requires(std::is_default_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  vec& assign(size_type count) {
+  vec& assign(std::initializer_list<value_type> il)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  vec& assign(std::initializer_list<value_type> il) {
-    // TBD
-    return *this;
-  }
-
-  template<typename InputIt>
-  vec& assign(InputIt first, InputIt last) {
+  template<std::input_iterator InputIt>
+  vec& assign(InputIt first, InputIt last)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
@@ -435,6 +618,26 @@ public:
   const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
 
 private:
+  void _do_destroy() noexcept {
+    if constexpr (!std::is_trivially_destructible_v<value_type>) {
+      for (iterator it = begin(); it != end(); ++it) {
+        std::destroy_at(&*it);
+      }
+    }
+    alloc_t::deallocate(_data, capacity());
+  }
+
+  void _copy_construct(const vec& other) {
+    _data = alloc_t::allocate(size());
+    try {
+      ::ntf::impl::vec_construct_range_it(data(), other.begin(), other.end());
+    } catch (...) {
+      alloc_t::deallocate(_data, size());
+      NTF_RETHROW();
+    }
+  }
+
+private:
   pointer _data;
   size_type _size;
   size_type _capacity;
@@ -482,14 +685,14 @@ public:
   inplace_vec(std::initializer_list<value_type> il)
   requires(std::is_copy_constructible_v<value_type>)
       : _size(std::min(il.size(), inner_capacity)) {
-    // TBD
+    ::ntf::impl::vec_construct_range_truncate(data(), size(), il.begin(), il.end());
   }
 
-  template<typename InputIt>
+  template<std::input_iterator InputIt>
   inplace_vec(InputIt first, InputIt last)
   requires(std::is_copy_constructible_v<value_type>)
       : _size(std::min(std::distance(first, last), inner_capacity)) {
-    // TBD
+    ::ntf::impl::vec_construct_range_truncate(data(), size(), first, last);
   }
 
 public:
@@ -500,7 +703,7 @@ public:
   inplace_vec(inplace_vec&& other) noexcept(std::is_nothrow_move_constructible_v<value_type>)
   requires(std::is_move_constructible_v<value_type>)
       : _size(other._size) {
-    // TBD
+    ::ntf::impl::vec_construct_range_truncate(data(), size(), other.begin(), other.end());
   }
 
   inplace_vec(const inplace_vec& other) noexcept
@@ -511,15 +714,13 @@ public:
   requires(!std::is_trivially_copy_constructible_v<value_type> &&
            std::is_copy_constructible_v<value_type>)
       : _size(other._size) {
-    // TBD
+    ::ntf::impl::vec_construct_range_truncate(data(), size(), other.begin(), other.end());
   }
 
   ~inplace_vec() noexcept
   requires(!std::is_trivially_destructible_v<value_type>)
   {
-    for (iterator it = begin(); it != end(); ++it) {
-      std::destroy_at(&*it);
-    }
+    _do_destroy();
   }
 
   ~inplace_vec() noexcept
@@ -596,53 +797,81 @@ public:
     // TBD
   }
 
-  void clear() {
+  void clear() noexcept {
+    if (!std::is_trivially_destructible_v<value_type>) {
+      std::destroy_n(data(), size());
+    }
+    _size = 0;
+  }
+
+  void resize(size_type n)
+  requires(std::is_default_constructible_v<value_type>)
+  {
     // TBD
   }
 
-  void resize(size_type n) {
+  void resize(size_type n, const value_type& val)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
   }
 
 public:
   inplace_vec&
-  operator=(inplace_vec&& other) noexcept(std::is_nothrow_move_constructible_v<value_type>) {
+  operator=(inplace_vec&& other) noexcept(std::is_nothrow_move_constructible_v<value_type>)
+  requires(std::is_move_constructible_v<value_type> || std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  inplace_vec& operator=(inplace_vec&) noexcept(std::is_nothrow_copy_constructible_v<value_type>) {
+  inplace_vec&
+  operator=(const inplace_vec&) noexcept(std::is_nothrow_copy_constructible_v<value_type>)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  inplace_vec& operator=(std::initializer_list<value_type> il) { return assign(il); }
+  inplace_vec& operator=(std::initializer_list<value_type> il)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
+    return assign(il);
+  }
 
-  inplace_vec& assign(size_type count, const T& value) {
+  inplace_vec& assign(size_type count, const T& value)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  inplace_vec& assign(size_type count) {
+  inplace_vec& assign(size_type count)
+  requires(std::is_default_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  inplace_vec& assign(std::initializer_list<value_type> il) {
+  inplace_vec& assign(std::initializer_list<value_type> il)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  template<typename InputIt>
-  inplace_vec& assign(InputIt first, InputIt last) {
+  template<std::input_iterator InputIt>
+  inplace_vec& assign(InputIt first, InputIt last)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
 public:
-  const_pointer data() const noexcept { return reinterpret_cast<const_pointer>(&_data[0]); }
+  const_pointer data() const noexcept { return _data.data(); }
 
-  pointer data() noexcept { return const_cast<pointer>(std::as_const(*this).data()); }
+  pointer data() noexcept { return _data.data(); }
 
   const_reference at(size_type idx) const {
     NTF_THROW_IF(idx >= size(),
@@ -722,11 +951,19 @@ public:
   const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
 
 private:
-  alignas(value_type[inner_capacity]) u8 _data[inner_capacity * sizeof(value_type)];
+  void _do_destroy() noexcept {
+    for (iterator it = begin(); it != end(); ++it) {
+      std::destroy_at(&*it);
+    }
+  }
+
+private:
+  ::ntf::impl::inplace_vec_data<T, inner_capacity> _data;
   size_type _size;
 };
 
-template<typename T, size_t SmallCap, typename Alloc = ::ntf::mem::default_pool::allocator<T>>
+template<typename T, size_t SmallCap,
+         ::ntf::meta::allocator_type_of<T> Alloc = ::ntf::default_alloc<T>>
 class small_vec : private ::ntf::impl::vec_alloc<T, Alloc> {
 public:
   using value_type = T;
@@ -755,100 +992,182 @@ private:
 public:
   small_vec() noexcept(std::is_nothrow_default_constructible_v<allocator_type>)
   requires(std::is_default_constructible_v<allocator_type>)
-      : alloc_t(), _size(), _capacity() {}
+      : alloc_t(), _alloc_data(), _size(), _capacity() {}
 
   small_vec(const allocator_type& alloc) noexcept(
-    std::is_nothrow_copy_constructible_v<allocator_type>)
-  requires(std::is_copy_constructible_v<allocator_type>)
-      : alloc_t(alloc), _size(), _capacity() {}
+    std::is_nothrow_copy_constructible_v<allocator_type>) :
+      alloc_t(alloc), _alloc_data(), _size(), _capacity() {}
 
   explicit small_vec(size_type n)
   requires(std::is_default_constructible_v<allocator_type> &&
            std::is_default_constructible_v<value_type>)
-      : alloc_t(), _size(n), _capacity(n > inner_capacity ? n : 0) {
+      : alloc_t(), _size(n), _capacity(std::max(n, inner_capacity)) {
     if (!using_small()) {
-      _allocate_elems(size());
+      _alloc_data = alloc_t::allocate(size());
     }
     if constexpr (!std::is_trivially_default_constructible_v<value_type>) {
-      ::ntf::impl::vec_construct_range(data(), size());
+      if constexpr (std::is_nothrow_default_constructible_v<value_type>) {
+        ::ntf::impl::vec_construct_range(data(), size());
+      } else {
+        try {
+          ::ntf::impl::vec_construct_range(data(), size());
+        } catch (...) {
+          if (!using_small()) {
+            alloc_t::deallocate(_alloc_data, size());
+          }
+          NTF_RETHROW();
+        }
+      }
     }
   }
 
   explicit small_vec(size_type n, const allocator_type& alloc)
-  requires(std::is_copy_constructible_v<allocator_type> &&
-           std::is_default_constructible_v<value_type>)
-      : alloc_t(alloc), _size(n), _capacity(n > inner_capacity ? n : 0) {
+  requires(std::is_default_constructible_v<value_type>)
+      : alloc_t(alloc), _size(n), _capacity(std::max(n, inner_capacity)) {
     if (!using_small()) {
-      _allocate_elems(size());
+      _alloc_data = alloc_t::allocate(size());
     }
     if constexpr (!std::is_trivially_default_constructible_v<value_type>) {
-      ::ntf::impl::vec_construct_range(data(), size());
+      if constexpr (std::is_nothrow_default_constructible_v<value_type>) {
+        ::ntf::impl::vec_construct_range(data(), size());
+      } else {
+        try {
+          ::ntf::impl::vec_construct_range(data(), size());
+        } catch (...) {
+          if (!using_small()) {
+            alloc_t::deallocate(_alloc_data, size());
+          }
+          NTF_RETHROW();
+        }
+      }
     }
   }
 
   small_vec(size_type n, const value_type& val)
   requires(std::is_default_constructible_v<allocator_type> &&
            std::is_copy_constructible_v<value_type>)
-      : alloc_t(), _size(n), _capacity(n > inner_capacity ? n : 0) {
+      : alloc_t(), _size(n), _capacity(std::max(n, inner_capacity)) {
     if (!using_small()) {
-      _allocate_elems(size());
+      _alloc_data = alloc_t::allocate(size());
     }
-    ::ntf::impl::vec_construct_range(data(), size(), val);
+    if constexpr (std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range(data(), size(), val);
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range(data(), size(), val);
+      } catch (...) {
+        if (!using_small()) {
+          alloc_t::deallocate(_alloc_data, size());
+        }
+        NTF_RETHROW();
+      }
+    }
   }
 
   small_vec(size_type n, const value_type& val, const allocator_type& alloc)
-  requires(std::is_copy_constructible_v<allocator_type> &&
-           std::is_copy_constructible_v<value_type>)
-      : alloc_t(alloc), _size(n), _capacity(n > inner_capacity ? n : 0) {
+  requires(std::is_copy_constructible_v<value_type>)
+      : alloc_t(alloc), _size(n), _capacity(std::max(n, inner_capacity)) {
     if (!using_small()) {
-      _allocate_elems(size());
+      _alloc_data = alloc_t::allocate(n);
     }
-    ::ntf::impl::vec_construct_range(data(), size(), val);
+    if constexpr (std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range(data(), size(), val);
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range(data(), size(), val);
+      } catch (...) {
+        if (!using_small()) {
+          alloc_t::deallocate(_alloc_data, size());
+        }
+        NTF_RETHROW();
+      }
+    }
   }
 
   small_vec(std::initializer_list<value_type> il)
   requires(std::is_default_constructible_v<allocator_type> &&
            std::is_copy_constructible_v<value_type>)
-      : alloc_t(), _size(il.size()), _capacity(il.size() > inner_capacity ? il.size() : 0) {
+      : alloc_t(), _size(il.size()), _capacity(std::max(il.size(), inner_capacity)) {
     if (!using_small()) {
-      _allocate_elems(size());
+      _alloc_data = alloc_t::allocate(size());
     }
-    ::ntf::impl::vec_construct_range(data(), il);
+    if constexpr (std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range_it(data(), il.begin(), il.end());
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range(data(), il.begin(), il.end());
+      } catch (...) {
+        if (!using_small()) {
+          alloc_t::deallocate(_alloc_data, size());
+        }
+        NTF_RETHROW();
+      }
+    }
   }
 
   small_vec(std::initializer_list<value_type> il, const allocator_type& alloc)
-  requires(std::is_copy_constructible_v<allocator_type> &&
-           std::is_copy_constructible_v<value_type>)
-      : alloc_t(alloc), _size(il.size()), _capacity(il.size() > inner_capacity ? il.size() : 0) {
+  requires(std::is_copy_constructible_v<value_type>)
+      : alloc_t(alloc), _size(il.size()), _capacity(std::max(il.size(), inner_capacity)) {
     if (!using_small()) {
-      _allocate_elems(size());
+      _alloc_data = alloc_t::allocate(size());
     }
-    ::ntf::impl::vec_construct_range(data(), il);
+    if constexpr (std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range_it(data(), il.begin(), il.end());
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range(data(), il.begin(), il.end());
+      } catch (...) {
+        if (!using_small()) {
+          alloc_t::deallocate(_alloc_data, size());
+        }
+        NTF_RETHROW();
+      }
+    }
   }
 
   template<typename InputIt>
   small_vec(InputIt first, InputIt last)
   requires(std::is_default_constructible_v<allocator_type> &&
            std::is_copy_constructible_v<value_type>)
-      :
-      alloc_t(), _size(std::distance(first, last)), _capacity(_size > inner_capacity ? _size : 0) {
+      : alloc_t(), _size(std::distance(first, last)), _capacity(std::max(_size, inner_capacity)) {
     if (!using_small()) {
-      _allocate_elems(size());
+      _alloc_data = alloc_t::allocate(size());
     }
-    ::ntf::impl::vec_construct_range_it(data(), first, last);
+    if constexpr (std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range_it(data(), first, last);
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range(data(), first, last);
+      } catch (...) {
+        if (!using_small()) {
+          alloc_t::deallocate(_alloc_data, size());
+        }
+        NTF_RETHROW();
+      }
+    }
   }
 
-  template<typename InputIt>
+  template<std::input_iterator InputIt>
   small_vec(InputIt first, InputIt last, const allocator_type& alloc)
-  requires(std::is_copy_constructible_v<allocator_type> &&
-           std::is_copy_constructible_v<value_type>)
+  requires(std::is_copy_constructible_v<value_type>)
       :
       alloc_t(alloc), _size(std::distance(first, last)),
-      _capacity(_size > inner_capacity ? _size : 0) {
+      _capacity(std::max(_size, inner_capacity)) {
     if (!using_small()) {
-      _allocate_elems(size());
+      _alloc_data = alloc_t::allocate(size());
     }
-    ::ntf::impl::vec_construct_range_it(data(), first, last);
+    if constexpr (std::is_nothrow_copy_constructible_v<value_type>) {
+      ::ntf::impl::vec_construct_range_it(data(), first, last);
+    } else {
+      try {
+        ::ntf::impl::vec_construct_range(data(), first, last);
+      } catch (...) {
+        if (!using_small()) {
+          alloc_t::deallocate(_alloc_data, size());
+        }
+        NTF_RETHROW();
+      }
+    }
   }
 
 public:
@@ -856,70 +1175,43 @@ public:
                                         std::is_nothrow_move_constructible_v<value_type>)
   requires(std::is_default_constructible_v<allocator_type>)
       : alloc_t(), _size(other.size()), _capacity(other._capacity) {
-    if (other.using_small()) {
-      // TBD
-    } else {
-      _alloc_data = other._alloc_data;
-    }
-    other._capacity = 0;
-    other._size = 0;
+    _move_construct(other);
   }
 
   small_vec(small_vec&& other) noexcept(std::is_nothrow_copy_constructible_v<allocator_type> &&
                                         std::is_nothrow_move_constructible_v<value_type>)
-  requires(!std::is_default_constructible_v<allocator_type> &&
-           std::is_copy_constructible_v<allocator_type>)
+  requires(!std::is_default_constructible_v<allocator_type>)
       : alloc_t(other.get_allocator()), _size(other.size()), _capacity(other._capacity) {
-    if (other.using_small()) {
-      // TBD
-    } else {
-      _alloc_data = other._alloc_data;
-    }
-    other._capacity = 0;
-    other._size = 0;
+    _move_construct(other);
   }
 
   small_vec(small_vec&& other, const allocator_type& alloc) noexcept(
     std::is_nothrow_copy_constructible_v<allocator_type> &&
-    std::is_nothrow_move_constructible_v<value_type>)
-  requires(std::is_copy_constructible_v<allocator_type>)
-      : alloc_t(alloc), _size(other.size()), _capacity(other._capacity) {
-    if (other.using_small()) {
-      // TBD
-    } else {
-      _alloc_data = other._alloc_data;
-    }
-    other._capacity = 0;
-    other._size = 0;
+    std::is_nothrow_move_constructible_v<value_type>) :
+      alloc_t(alloc), _size(other.size()), _capacity(other._capacity) {
+    _move_construct(other);
   }
 
   small_vec(const small_vec& other)
   requires(std::is_default_constructible_v<allocator_type>)
       : alloc_t(), _size(other.size()), _capacity(other._capacity) {
-    // TBD
+    _copy_construct(other);
   }
 
   small_vec(const small_vec& other)
-  requires(!std::is_default_constructible_v<allocator_type> &&
-           std::is_copy_constructible_v<allocator_type>)
+  requires(!std::is_default_constructible_v<allocator_type>)
       : alloc_t(other.get_allocator()), _size(other.size()), _capacity(other._capacity) {
-    // TBD
+    _copy_construct(other);
   }
 
-  small_vec(const small_vec& other, const allocator_type& alloc)
-  requires(std::is_copy_constructible_v<allocator_type>)
-      : alloc_t(alloc), _size(other.size()), _capacity(other._capacity) {
-    // TBD
+  small_vec(const small_vec& other, const allocator_type& alloc) :
+      alloc_t(alloc), _size(other.size()), _capacity(other._capacity) {
+    _copy_construct(other);
   }
 
   ~small_vec() noexcept {
-    if constexpr (!std::is_trivially_destructible_v<value_type>) {
-      for (iterator it = begin(); it != end(); ++it) {
-        std::destroy_at(&*it);
-      }
-    }
-    if (!empty() && !using_small()) {
-      alloc_t::deallocate(_alloc_data, size());
+    if (!empty()) {
+      _do_destroy();
     }
   }
 
@@ -962,7 +1254,7 @@ public:
     // TBD
   }
 
-  template<typename InputIt>
+  template<std::input_iterator InputIt>
   iterator insert(const_iterator pos, InputIt first, InputIt last) {
     // TBD
   }
@@ -997,53 +1289,105 @@ public:
     // TBD
   }
 
-  void clear() {
+  void clear() noexcept {
+    if (!std::is_trivially_destructible_v<value_type>) {
+      std::destroy_n(data(), size());
+    }
+    _size = 0;
+  }
+
+  void resize(size_type n)
+  requires(std::is_default_constructible_v<value_type>)
+  {
     // TBD
   }
 
-  void resize(size_type n) {
+  void resize(size_type n, const value_type& val)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
   }
 
 public:
   small_vec& operator=(small_vec& other) noexcept(
-    (std::allocator_traits<allocator_type>::propagate_on_container_move_assignment::value ||
-     std::allocator_traits<allocator_type>::is_always_equal::value) &&
-    std::is_nothrow_move_constructible_v<value_type>) {
+    ::ntf::meta::nothrow_move_assignable_allocator<allocator_type> &&
+    std::is_nothrow_move_constructible_v<value_type>)
+  requires(std::is_move_constructible_v<T> || std::is_copy_constructible_v<T>)
+  {
+    if (this == &other) {
+      return *this;
+    }
+
+    // TBD
+    // if (other.using_small()) {
+    //   if constexpr (std::is_move_constructible_v<T>) {
+    //     ::ntf::impl::vec_array_move_assign<inner_capacity>(data(), other._get_small(), size(),
+    //                                                        other.size());
+    //   } else {
+    //   }
+    // } else {
+    //   if (!empty()) {
+    //     _do_destroy();
+    //   }
+    //   _alloc_data = other._alloc_data;
+    // }
+    _capacity = other._capacity;
+    _size = other._size;
+
+    if constexpr (std::allocator_traits<
+                    allocator_type>::propagate_on_container_move_assignment::value) {
+      get_allocator() = std::move(other.get_allocator());
+    }
+
+    other._alloc_data = nullptr;
+    other._size = 0;
+    other._capacity = 0;
+
+    return *this;
+  }
+
+  small_vec& operator=(const small_vec& other)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  small_vec& operator=(const small_vec& other) {
+  small_vec& operator=(std::initializer_list<value_type> il)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
+    return assign(il);
+  }
+
+  small_vec& assign(size_type count, const T& value)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  small_vec& operator=(std::initializer_list<value_type> il) { return assign(il); }
-
-  small_vec& assign(size_type count, const T& value) {
+  small_vec& assign(size_type count)
+  requires(std::is_default_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  small_vec& assign(size_type count) {
+  small_vec& assign(std::initializer_list<value_type> il)
+  requires(std::is_copy_constructible_v<value_type>)
+  {
     // TBD
     return *this;
   }
 
-  small_vec& assign(std::initializer_list<value_type> il) {
-    // TBD
-    return *this;
-  }
-
-  template<typename InputIt>
+  template<std::input_iterator InputIt>
   small_vec& assign(InputIt first, InputIt last) {
     // TBD
     return *this;
   }
 
 public:
-  const_pointer data() const noexcept { return _capacity ? _alloc_data : _get_small(); }
+  const_pointer data() const noexcept { return _capacity ? _alloc_data : _small_data.data(); }
 
   pointer data() noexcept { return const_cast<pointer>(std::as_const(*this).data()); }
 
@@ -1093,11 +1437,11 @@ public:
 
   size_type size_bytes() const noexcept { return size() * sizeof(value_type); }
 
-  size_type capacity() const noexcept { return _capacity ? _capacity : inner_capacity; }
+  size_type capacity() const noexcept { return _capacity; }
 
   bool empty() const noexcept { return _size == 0; }
 
-  bool using_small() const noexcept { return _capacity == 0; }
+  bool using_small() const noexcept { return _capacity > inner_capacity; }
 
   span<value_type> as_span() noexcept { return {data(), size()}; }
 
@@ -1133,17 +1477,45 @@ public:
   const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
 
 private:
-  void _allocate_elems(size_type n) { _alloc_data = alloc_t::allocate(n); }
-
-  const_pointer _get_small() const noexcept {
-    return reinterpret_cast<const_pointer>(&_small_data[0]);
+  void _do_destroy() noexcept {
+    if constexpr (!std::is_trivially_destructible_v<value_type>) {
+      for (iterator it = begin(); it != end(); ++it) {
+        std::destroy_at(&*it);
+      }
+    }
+    if (!using_small()) {
+      alloc_t::deallocate(_alloc_data, size());
+    }
   }
 
-  pointer _get_small() noexcept { return const_cast<pointer>(std::as_const(*this)._get_small()); }
+  void _copy_construct(const small_vec& other) {
+    if (!other.using_small()) {
+      _alloc_data = alloc_t::allocate(size());
+    }
+
+    try {
+      ::ntf::impl::vec_construct_range_it(data(), other.begin(), other.end());
+    } catch (...) {
+      alloc_t::deallocate(_alloc_data);
+      NTF_RETHROW();
+    }
+  }
+
+  void
+  _move_construct(small_vec& other) noexcept(std::is_nothrow_move_constructible_v<value_type>) {
+    if (other.using_small()) {
+      ::ntf::impl::vec_construct_range(data(), other.begin(), other.end());
+    } else {
+      _alloc_data = other._alloc_data;
+    }
+    other._alloc_data = nullptr;
+    other._capacity = 0;
+    other._size = 0;
+  }
 
 private:
   union {
-    alignas(value_type[inner_capacity]) u8 _small_data[inner_capacity * sizeof(value_type)];
+    ::ntf::impl::inplace_vec_data<T, inner_capacity> _small_data;
     pointer _alloc_data;
   };
 
