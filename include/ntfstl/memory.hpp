@@ -357,12 +357,12 @@ public:
   template<typename U = T>
   requires(std::convertible_to<T*, U*>)
   void operator()(U* ptr) noexcept(std::is_nothrow_destructible_v<T> &&
-                                   noexcept(base_t::deallocate(static_cast<T*>(ptr)))) {
+                                   noexcept(base_t::deallocate(static_cast<T*>(ptr), 1u))) {
     static_assert(meta::is_complete<T>, "Can't delete incomplete type");
     if constexpr (!std::is_trivially_destructible_v<T>) {
       std::destroy_at(static_cast<T*>(ptr));
     }
-    base_t::deallocate(ptr, 1u);
+    base_t::deallocate(static_cast<T*>(ptr), 1u);
   }
 
   template<typename U = T>
@@ -374,7 +374,7 @@ public:
     if constexpr (!std::is_trivially_destructible_v<T>) {
       std::destroy_n(static_cast<T*>(ptr), n);
     }
-    base_t::deallocate(ptr, n);
+    base_t::deallocate(static_cast<T*>(ptr), n);
   }
 
 public:
@@ -390,7 +390,10 @@ struct memory_pool {
   virtual std::pair<void*, size_t> bulk_allocate(size_t size, size_t alignment) = 0;
   virtual void bulk_deallocate(void* ptr, size_t size) noexcept = 0;
 
-  virtual bool is_equal(const memory_pool& other) const noexcept { return true; }
+  virtual bool is_equal(const memory_pool& other) const noexcept {
+    NTF_UNUSED(other);
+    return true;
+  }
 };
 
 template<typename T>
@@ -776,7 +779,10 @@ public:
     NTF_UNUSED(size);
   }
 
-  constexpr bool is_equal(const stack_arena& other) const noexcept { return true; }
+  constexpr bool is_equal(const stack_arena& other) const noexcept {
+    NTF_UNUSED(other);
+    return true;
+  }
 
   constexpr void clear() noexcept { _used = 0; }
 
@@ -796,5 +802,39 @@ namespace ntf {
 
 template<typename T>
 using default_alloc = ::ntf::mem::default_pool::allocator<T>;
+
+template<typename T, typename... Args>
+T* alloc_construct(Args&&... args) {
+  return ::ntf::mem::default_pool::instance().construct<T>(std::forward<Args>(args)...);
+}
+
+template<typename T>
+requires(std::copy_constructible<T>)
+T* alloc_construct_n(::ntf::mem::default_pool::size_type n, const T& copy) {
+  return ::ntf::mem::default_pool::instance().construct_n<T>(n, copy);
+}
+
+template<typename T>
+requires(std::is_default_constructible_v<T>)
+T* alloc_construct_n(::ntf::mem::default_pool::size_type n) {
+  return ::ntf::mem::default_pool::instance().construct_n<T>(n);
+}
+
+template<typename T>
+requires(std::is_trivially_constructible_v<T>)
+T* alloc_construct_n(ntf::uninitialized_t, ::ntf::mem::default_pool::size_type n) {
+  return ::ntf::mem::default_pool::instance().construct_n<T>(::ntf::uninitialized, n);
+}
+
+template<typename T>
+void alloc_destroy(T* ptr) noexcept(std::is_nothrow_destructible_v<T>) {
+  ::ntf::mem::default_pool::instance().destroy(ptr);
+}
+
+template<typename T>
+void alloc_destroy_n(T* ptr, ::ntf::mem::default_pool::size_type n) noexcept(
+  std::is_nothrow_destructible_v<T>) {
+  ::ntf::mem::default_pool::instance().destroy_n(ptr), n;
+}
 
 } // namespace ntf
