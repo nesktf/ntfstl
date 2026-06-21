@@ -1,20 +1,20 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ntfstl/unique_array.hpp>
+#include <ntf/unique_array.hpp>
 
 namespace {
 
-struct int_arena {
+struct IntArena {
   size_t pos{0};
   int mem[20];
 };
 
-struct int_alloc {
+struct IntAlloc {
 public:
   using value_type = int;
   using size_type = size_t;
 
 public:
-  int_alloc(int_arena& arena) : _arena{&arena} {}
+  IntAlloc(IntArena& arena) : _arena{&arena} {}
 
 public:
   int* allocate(size_t count) {
@@ -25,219 +25,116 @@ public:
 
   void deallocate(int*, size_t) noexcept {}
 
-  bool operator==(const int_alloc&) const noexcept { return true; }
+  bool operator==(const IntAlloc&) const noexcept { return true; }
 
 private:
-  int_arena* _arena;
+  IntArena* _arena;
 };
-
-static_assert(::ntf::meta::allocator_type_of<int_alloc, int>);
-using int_alloc_del = ::ntf::mem::allocator_delete<int, int_alloc>;
 
 } // namespace
 
-TEST_CASE("unique array empty construction", "[unique_array]") {
-  int_arena arena;
-  int_alloc alloc{arena};
-
-  ntf::unique_array<int> arr;
+TEST_CASE("UniqueArray empty construction", "[UniqueArray]") {
+  ntf::UniqueArray<int, ntf::AllocatorDelete<std::allocator<int>>> arr;
   REQUIRE(arr.empty());
 
-  ntf::unique_array<int> arr_null = nullptr;
+  ntf::UniqueArray<int, ntf::AllocatorDelete<std::allocator<int>>> arr_null = nullptr;
   REQUIRE(arr_null.empty());
 
-  ntf::unique_array<int, int_alloc_del> arr_alloc{alloc};
+  IntArena arena;
+  IntAlloc alloc{arena};
+  ntf::AllocatorDelete<IntAlloc> deleter{alloc};
+  ntf::UniqueArray<int, ntf::AllocatorDelete<IntAlloc>> arr_alloc{deleter};
   REQUIRE(arr_alloc.empty());
 }
 
-TEST_CASE("unique array construction and allocation", "[unique_array]") {
+TEST_CASE("UniqueArray construction and allocation", "[UniqueArray]") {
   const size_t count = 4u;
   const int copy = 10;
 
-  SECTION("Use std::allocator, construct from pointer") {
+  SECTION("Construct from pointer") {
     std::allocator<int> alloc;
+    ntf::AllocatorDelete<std::allocator<int>> deleter{alloc};
+
     auto* ptr = alloc.allocate(count);
     for (size_t i = 0; i < count; ++i) {
       new (ptr + i) int{copy};
     }
 
-    ntf::unique_array<int, ntf::mem::allocator_delete<int, std::allocator<int>>> arr(ptr, count);
+    ntf::UniqueArray<int, decltype(deleter)> arr(ptr, count, alloc);
     REQUIRE(!arr.empty());
     REQUIRE(arr.size() == count);
-
     for (const int i : arr) {
       REQUIRE(i == copy);
     }
-
     arr.reset();
     REQUIRE(arr.empty());
   }
 
-  SECTION("Use std::allocator, default construct from factory") {
-    std::allocator<int> alloc;
-    auto arr = ntf::make_unique_arr_alloc<int>(count, alloc);
-    REQUIRE(!arr.empty());
-    REQUIRE(arr.size() == count);
-
-    for (const int n : arr) {
+  SECTION("Default construct from factory") {
+    auto arr1 = ntf::make_unique_array<int>(count);
+    REQUIRE(!arr1.empty());
+    REQUIRE(arr1.size() == count);
+    for (const int n : arr1) {
       REQUIRE(n == 0);
     }
+    arr1.reset();
+    REQUIRE(arr1.empty());
 
-    arr.reset();
-    REQUIRE(arr.empty());
+    IntArena arena;
+    IntAlloc alloc{arena};
+    auto arr2 = ntf::make_unique_array<int>(count, alloc);
+    REQUIRE(!arr2.empty());
+    REQUIRE(arr2.size() == count);
+    for (const int n : arr1) {
+      REQUIRE(n == 0);
+    }
+    arr2.reset();
+    REQUIRE(arr2.empty());
   }
 
-  SECTION("Use std::allocator, construct from factory using copy") {
-    std::allocator<int> alloc;
-    auto arr = ntf::make_unique_arr_alloc<int>(count, copy, alloc);
-    REQUIRE(!arr.empty());
-    REQUIRE(arr.size() == count);
-
-    for (const int n : arr) {
+  SECTION("Construct from factory using copy") {
+    auto arr1 = ntf::make_unique_array<int>(count, copy);
+    REQUIRE(!arr1.empty());
+    REQUIRE(arr1.size() == count);
+    for (const int n : arr1) {
       REQUIRE(n == copy);
     }
+    arr1.reset();
+    REQUIRE(arr1.empty());
 
-    arr.reset();
-    REQUIRE(arr.empty());
-  }
-
-  SECTION("Use std::allocator, construct from factory, uninitialized") {
-    std::allocator<int> alloc;
-    auto arr = ntf::make_unique_arr_alloc<int>(ntf::uninitialized, count, alloc);
-    REQUIRE(!arr.empty());
-    REQUIRE(arr.size() == count);
-
-    arr.reset();
-    REQUIRE(arr.empty());
-  }
-
-  SECTION("Use default memory pool, construct from pointer") {
-    ntf::mem::default_pool::allocator<int> alloc;
-    auto* ptr = alloc.allocate(count);
-    for (size_t i = 0; i < count; ++i) {
-      new (ptr + i) int{copy};
-    }
-    ntf::unique_array<int> arr(ptr, count);
-    REQUIRE(!arr.empty());
-    REQUIRE(arr.size() == count);
-
-    for (const int i : arr) {
-      REQUIRE(i == copy);
-    }
-
-    arr.reset();
-    REQUIRE(arr.empty());
-  }
-
-  SECTION("Use default memory pool, default construct from factory") {
-    auto arr = ntf::make_unique_arr<int>(count);
-    REQUIRE(!arr.empty());
-    REQUIRE(arr.size() == count);
-
-    for (const int i : arr) {
-      REQUIRE(i == 0);
-    }
-
-    arr.reset();
-    REQUIRE(arr.empty());
-  }
-
-  SECTION("Use default memory pool, construct from factory using copy") {
-    auto arr = ntf::make_unique_arr<int>(count, copy);
-    REQUIRE(!arr.empty());
-    REQUIRE(arr.size() == count);
-
-    for (const int i : arr) {
-      REQUIRE(i == copy);
-    }
-
-    arr.reset();
-    REQUIRE(arr.empty());
-  }
-
-  SECTION("Use default memory pool, construct from factory, uninitialized") {
-    auto arr = ntf::make_unique_arr<int>(ntf::uninitialized, count);
-    REQUIRE(!arr.empty());
-    REQUIRE(arr.size() == count);
-
-    arr.reset();
-    REQUIRE(arr.empty());
-  }
-
-  SECTION("Use operator new[] and copy") {
-    auto* ptr = new int[8u];
-    for (size_t i = 0; i < count; ++i) {
-      ptr[i] = copy;
-    }
-
-    ntf::unique_array<int, std::default_delete<int[]>> arr(ptr, count);
-    REQUIRE(!arr.empty());
-    REQUIRE(arr.size() == count);
-
-    for (const int i : arr) {
-      REQUIRE(i == copy);
-    }
-
-    arr.reset();
-    REQUIRE(arr.empty());
-  }
-
-  SECTION("Use custom allocator, construct from pointer") {
-    int_arena arena;
-    int_alloc alloc{arena};
-
-    auto* ptr = alloc.allocate(count);
-    for (size_t i = 0; i < count; ++i) {
-      new (ptr + i) int{copy};
-    }
-
-    ntf::unique_array<int, int_alloc_del> arr(ptr, count, int_alloc_del(alloc));
-    REQUIRE(!arr.empty());
-    REQUIRE(arr.size() == count);
-
-    for (const int i : arr) {
-      REQUIRE(i == copy);
-    }
-
-    arr.reset();
-    REQUIRE(arr.empty());
-  }
-
-  SECTION("Use custom allocator, construct from factory using copy") {
-    int_arena arena;
-    int_alloc alloc{arena};
-
-    auto arr = ntf::make_unique_arr_alloc<int>(count, copy, alloc);
-    REQUIRE(!arr.empty());
-    REQUIRE(arr.size() == count);
-
-    for (const int n : arr) {
+    IntArena arena;
+    IntAlloc alloc{arena};
+    auto arr2 = ntf::make_unique_array<int>(count, copy, alloc);
+    REQUIRE(!arr2.empty());
+    REQUIRE(arr2.size() == count);
+    for (const int n : arr1) {
       REQUIRE(n == copy);
     }
-
-    arr.reset();
-    REQUIRE(arr.empty());
+    arr2.reset();
+    REQUIRE(arr2.empty());
   }
 
-  SECTION("Use custom allocator, construct from factory, uninitialized") {
-    int_arena arena;
-    int_alloc alloc{arena};
+  SECTION("Construct from factory uninitialized") {
+    auto arr1 = ntf::make_unique_array<int>(ntf::uninitialized, count);
+    REQUIRE(!arr1.empty());
+    REQUIRE(arr1.size() == count);
+    arr1.reset();
+    REQUIRE(arr1.empty());
 
-    auto arr = ntf::make_unique_arr_alloc<int>(ntf::uninitialized, count, alloc);
-    REQUIRE(!arr.empty());
-    REQUIRE(arr.size() == count);
-
-    arr.reset();
-    REQUIRE(arr.empty());
+    IntArena arena;
+    IntAlloc alloc{arena};
+    auto arr2 = ntf::make_unique_array<int>(ntf::uninitialized, count, alloc);
+    REQUIRE(!arr2.empty());
+    REQUIRE(arr2.size() == count);
+    arr2.reset();
+    REQUIRE(arr2.empty());
   }
 }
 
-TEST_CASE("unique array move operations"
-          "[unique_array]") {
+TEST_CASE("UniqueArray move operations", "[UniqueArray]") {
   const size_t count = 8u;
   SECTION("Use std::allocator") {
-    std::allocator<int> alloc;
-    auto arr = ntf::make_unique_arr_alloc<int>(ntf::uninitialized, count, alloc);
+    auto arr = ntf::make_unique_array<int>(ntf::uninitialized, count);
     REQUIRE(!arr.empty());
     REQUIRE(arr.size() == count);
 
@@ -253,10 +150,10 @@ TEST_CASE("unique array move operations"
   }
 
   SECTION("Use custom allocator") {
-    int_arena arena;
-    int_alloc alloc{arena};
+    IntArena arena;
+    IntAlloc alloc{arena};
 
-    auto arr = ntf::make_unique_arr_alloc<int>(ntf::uninitialized, count, alloc);
+    auto arr = ntf::make_unique_array<int>(ntf::uninitialized, count, alloc);
     REQUIRE(!arr.empty());
     REQUIRE(arr.size() == count);
 
@@ -272,15 +169,15 @@ TEST_CASE("unique array move operations"
   }
 }
 
-TEST_CASE("unique array reset", "[unique_array]") {
+TEST_CASE("UniqueArray reset", "[UniqueArray]") {
   const size_t count1 = 8u;
   const size_t count2 = 4u;
   {
-    auto arr1 = ntf::make_unique_arr<int>(ntf::uninitialized, count1);
+    auto arr1 = ntf::make_unique_array<int>(ntf::uninitialized, count1);
     REQUIRE(!arr1.empty());
     REQUIRE(arr1.size() == count1);
 
-    auto arr2 = ntf::make_unique_arr<int>(ntf::uninitialized, count2);
+    auto arr2 = ntf::make_unique_array<int>(ntf::uninitialized, count2);
     REQUIRE(!arr2.empty());
     REQUIRE(arr2.size() == count2);
 

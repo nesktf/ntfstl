@@ -1,29 +1,50 @@
-#pragma once
+#ifndef NTF_EXPECTED_HPP_
+#define NTF_EXPECTED_HPP_
 
-#include <ntfstl/optional.hpp>
+#include <ntf/memory.hpp>
+
+#include <exception>
 
 namespace ntf {
 
+namespace meta {
+
+template<typename E>
+concept has_noexcept_what_cstr = requires(const E& err) {
+  { err.what() } -> std::same_as<const char*>;
+  requires(noexcept(err.what()));
+};
+
+} // namespace meta
+
 template<typename>
-class bad_expected_access;
+class BadExpectedAccess;
 
 template<>
-class bad_expected_access<void> : public std::exception {
+class BadExpectedAccess<void> : public std::exception {
 public:
-  bad_expected_access() = default;
+  BadExpectedAccess() = default;
 
 public:
   const char* what() const noexcept override { return "bad_expected_access"; }
 };
 
 template<typename E>
-class bad_expected_access : public bad_expected_access<void> {
+class BadExpectedAccess : public BadExpectedAccess<void> {
 public:
-  explicit bad_expected_access(const E& err) : _err(err) {}
+  explicit BadExpectedAccess(const E& err) : _err(err) {}
 
-  explicit bad_expected_access(E&& err) : _err(std::move(err)) {}
+  explicit BadExpectedAccess(E&& err) : _err(std::move(err)) {}
 
 public:
+  const char* what() const noexcept override {
+    if constexpr (meta::has_noexcept_what_cstr<E>) {
+      return _err.what();
+    } else {
+      return BadExpectedAccess<void>::what();
+    }
+  }
+
   E& error() & noexcept { return _err; }
 
   const E& error() const& noexcept { return _err; }
@@ -36,14 +57,17 @@ private:
   E _err;
 };
 
-template<meta::not_void E>
+template<typename E>
+requires(!std::is_void_v<E>)
 class unexpected {
 public:
   unexpected() = delete;
 
-  template<meta::is_forwarding<E> U = E>
-  constexpr unexpected(U&& err) noexcept(std::is_nothrow_constructible_v<E, U>) :
-      _err(std::forward<U>(err)) {}
+  constexpr unexpected(E&& err) noexcept(std::is_nothrow_move_constructible_v<E>) :
+      _err(std::move(err)) {}
+
+  constexpr unexpected(const E& err) noexcept(std::is_nothrow_copy_constructible_v<E>) :
+      _err(err) {}
 
   template<typename... Args>
   constexpr explicit unexpected(Args&&... args) noexcept(
@@ -105,7 +129,9 @@ unexpected<typename std::decay_t<E>> make_unexpected(E&& e) {
   return unexpected<typename std::decay_t<E>>{std::forward<E>(e)};
 }
 
-NTF_DECLARE_TAG_TYPE(unexpect);
+struct unexpect_t {};
+
+constexpr inline unexpect_t unexpect;
 
 namespace impl {
 
@@ -117,40 +143,48 @@ constexpr void expect_rebind_error(T& val, E& err, Args&&... args) noexcept(
   if constexpr (valid) {
     // If is val a constructed object
     if constexpr (std::is_nothrow_constructible_v<E, Args...>) {
-      std::destroy_at(std::addressof(val));
-      new (std::addressof(err)) E(std::forward<Args>(args)...);
+      std::addressof(val)->~T();
+      NTF_PNEW(std::addressof(err)) E(std::forward<Args>(args)...);
     } else if constexpr (std::is_nothrow_move_constructible_v<E>) {
       E new_err(std::forward<Args>(args)...); // Might throw
-      std::destroy_at(std::addressof(val));
-      new (std::addressof(err)) E(std::move(new_err));
+      std::addressof(val)->~T();
+      NTF_PNEW(std::addressof(err)) E(std::move(new_err));
     } else {
       T old_val(std::move(val)); // Might or might not throw
-      std::destroy_at(std::addressof(val));
+      std::addressof(val)->~T();
+#ifdef __cpp_exceptions
       try {
-        new (std::addressof(err)) E(std::forward<Args>(args)...);
+#endif
+        NTF_PNEW(std::addressof(err)) E(std::forward<Args>(args)...);
+#ifdef __cpp_exceptions
       } catch (...) {
-        new (std::addressof(val)) T(std::move(old_val));
-        NTF_RETHROW();
+        NTF_PNEW(std::addressof(val)) T(std::move(old_val));
+        throw;
       }
+#endif
     }
   } else {
     // If is err a constructed object
     if constexpr (std::is_nothrow_constructible_v<E, Args...>) {
-      std::destroy_at(std::addressof(err));
-      new (std::addressof(err)) E(std::forward<Args>(args)...);
+      std::addressof(err)->~E();
+      NTF_PNEW(std::addressof(err)) E(std::forward<Args>(args)...);
     } else if constexpr (std::is_nothrow_move_constructible_v<E>) {
       E new_err(std::forward<Args>(args)...); // Might throw
-      std::destroy_at(std::addressof(err));
-      new (std::addressof(err)) E(std::move(new_err));
+      std::addressof(err)->~E();
+      NTF_PNEW(std::addressof(err)) E(std::move(new_err));
     } else {
       E old_err(std::move(err)); // Might throw
-      std::destroy_at(std::addressof(err));
+      std::addressof(err)->~E();
+#ifdef __cpp_exceptions
       try {
-        new (std::addressof(err)) E(std::forward<Args>(args)...);
+#endif
+        NTF_PNEW(std::addressof(err)) E(std::forward<Args>(args)...);
+#ifdef __cpp_exceptions
       } catch (...) {
-        new (std::addressof(err)) E(std::move(old_err));
-        NTF_RETHROW();
+        NTF_PNEW(std::addressof(err)) E(std::move(old_err));
+        throw;
       }
+#endif
     }
   }
 }
@@ -164,46 +198,54 @@ constexpr void expect_rebind_value(T& val, E& err, Args&&... args) noexcept(
   if constexpr (valid) {
     // If is val a constructed object
     if constexpr (std::is_nothrow_constructible_v<T, Args...>) {
-      std::destroy_at(std::addressof(val));
-      new (std::addressof(val)) T(std::forward<Args>(args)...);
+      std::addressof(val)->~T();
+      NTF_PNEW(std::addressof(val)) T(std::forward<Args>(args)...);
     } else if constexpr (std::is_nothrow_move_constructible_v<T>) {
       T new_val(std::forward<Args>(args)...); // Might throw
-      std::destroy_at(std::addressof(val));
-      new (std::addressof(val)) T(std::move(new_val));
+      std::addressof(val)->~T();
+      NTF_PNEW(std::addressof(val)) T(std::move(new_val));
     } else {
       T old_val(std::move(val)); // Might throw
-      std::destroy_at(std::addressof(val));
+      std::addressof(val)->~T();
+#ifdef __cpp_exceptions
       try {
-        new (std::addressof(val)) T(std::forward<Args>(args)...);
+#endif
+        NTF_PNEW(std::addressof(val)) T(std::forward<Args>(args)...);
+#ifdef __cpp_exceptions
       } catch (...) {
-        new (std::addressof(val)) T(std::move(old_val));
-        NTF_RETHROW();
+        NTF_PNEW(std::addressof(val)) T(std::move(old_val));
+        throw;
       }
+#endif
     }
   } else {
     // If is err a constructed object
     if constexpr (std::is_nothrow_constructible_v<T, Args...>) {
-      std::destroy_at(std::addressof(err));
-      new (std::addressof(val)) T(std::forward<Args>(args)...);
+      std::addressof(err)->~E();
+      NTF_PNEW(std::addressof(val)) T(std::forward<Args>(args)...);
     } else if constexpr (std::is_nothrow_move_constructible_v<T>) {
       T new_val(std::forward<Args>(args)...); // Might throw
-      std::destroy_at(std::addressof(err));
-      new (std::addressof(val)) T(std::move(new_val));
+      std::addressof(err)->~E();
+      NTF_PNEW(std::addressof(val)) T(std::move(new_val));
     } else {
       E old_err(std::move(err)); // Might or might not throw
-      std::destroy_at(std::addressof(err));
+      std::addressof(err)->~E();
+#ifdef __cpp_exceptions
       try {
-        new (std::addressof(val)) T(std::forward<Args>(args)...);
+#endif
+        NTF_PNEW(std::addressof(val)) T(std::forward<Args>(args)...);
+#ifdef __cpp_exceptions
       } catch (...) {
-        new (std::addressof(err)) E(std::move(old_err));
-        NTF_RETHROW();
+        NTF_PNEW(std::addressof(err)) E(std::move(old_err));
+        throw;
       }
+#endif
     }
   }
 }
 
 template<typename T, typename E>
-class expected_storage {
+class ExpectedStorage {
 private:
   static constexpr bool _triv_destr_val = std::is_trivially_destructible_v<T>;
   static constexpr bool _triv_destr_err = std::is_trivially_destructible_v<E>;
@@ -215,55 +257,57 @@ private:
     std::is_trivially_copy_constructible_v<T> && std::is_trivially_copy_constructible_v<E>;
 
 public:
-  constexpr expected_storage() noexcept(std::is_nothrow_default_constructible_v<T>)
+  constexpr ExpectedStorage() noexcept(std::is_nothrow_default_constructible_v<T>)
   requires(std::is_default_constructible_v<T>)
       : _value(), _valid(true) {}
 
   template<typename... Args>
-  constexpr expected_storage(in_place_t,
-                             Args&&... arg) noexcept(std::is_nothrow_constructible_v<T, Args...>) :
+  constexpr ExpectedStorage(in_place_t,
+                            Args&&... arg) noexcept(std::is_nothrow_constructible_v<T, Args...>) :
       _value(std::forward<Args>(arg)...), _valid(true) {}
 
   template<typename U, typename... Args>
-  constexpr expected_storage(in_place_t, std::initializer_list<U> il, Args&&... arg) noexcept(
+  constexpr ExpectedStorage(in_place_t, std::initializer_list<U> il, Args&&... arg) noexcept(
     std::is_nothrow_constructible_v<T, std::initializer_list<U>, Args...>) :
       _value(il, std::forward<Args>(arg)...), _valid(true) {}
 
   template<typename... Args>
-  constexpr expected_storage(unexpect_t,
-                             Args&&... arg) noexcept(std::is_nothrow_constructible_v<E, Args...>) :
+  constexpr ExpectedStorage(unexpect_t,
+                            Args&&... arg) noexcept(std::is_nothrow_constructible_v<E, Args...>) :
       _error(std::forward<Args>(arg)...), _valid(false) {}
 
   template<typename U, typename... Args>
-  constexpr expected_storage(unexpect_t, std::initializer_list<U> il, Args&&... arg) noexcept(
+  constexpr ExpectedStorage(unexpect_t, std::initializer_list<U> il, Args&&... arg) noexcept(
     std::is_nothrow_constructible_v<E, std::initializer_list<U>, Args...>) :
       _error(il, std::forward<Args>(arg)...), _valid(false) {}
 
-  template<meta::is_forwarding<T> U>
-  constexpr expected_storage(U&& val) noexcept(meta::is_nothrow_forward_constructible<T>) :
-      _value(std::forward<U>(val)), _valid(true) {}
+  constexpr ExpectedStorage(T&& val) noexcept(std::is_nothrow_move_constructible_v<T>) :
+      _value(std::move(val)), _valid(true) {}
+
+  constexpr ExpectedStorage(const T& val) noexcept(std::is_nothrow_copy_constructible_v<T>) :
+      _value(val), _valid(true) {}
 
   template<typename U = std::remove_cv_t<T>>
   constexpr explicit(!std::is_convertible_v<U, T>)
-    expected_storage(U&& val) noexcept(std::is_nothrow_constructible_v<T, U>) :
+    ExpectedStorage(U&& val) noexcept(std::is_nothrow_constructible_v<T, U>) :
       _value(std::forward<U>(val)), _valid(true) {}
 
   template<typename G>
-  constexpr explicit(!std::is_convertible_v<const G&, E>) expected_storage(
+  constexpr explicit(!std::is_convertible_v<const G&, E>) ExpectedStorage(
     const unexpected<G>& unex) noexcept(std::is_nothrow_constructible_v<E, const G&>) :
       _error(unex.error()), _valid(false) {}
 
   template<typename G>
   constexpr explicit(!std::is_convertible_v<G, E>)
-    expected_storage(unexpected<G>&& unex) noexcept(std::is_nothrow_constructible_v<E, G>) :
+    ExpectedStorage(unexpected<G>&& unex) noexcept(std::is_nothrow_constructible_v<E, G>) :
       _error(std::move(unex).error()), _valid(false) {}
 
 public:
-  constexpr expected_storage(expected_storage&& other) noexcept
+  constexpr ExpectedStorage(ExpectedStorage&& other) noexcept
   requires(_triv_movec)
   = default;
 
-  constexpr expected_storage(expected_storage&& other) noexcept(
+  constexpr ExpectedStorage(ExpectedStorage&& other) noexcept(
     std::is_nothrow_move_constructible_v<T> && std::is_nothrow_move_constructible_v<E>)
   requires(std::is_move_constructible_v<T> && std::is_move_constructible_v<E> && !_triv_movec)
       : _valid(std::move(other._valid)) {
@@ -275,11 +319,11 @@ public:
   }
 
 public:
-  constexpr expected_storage(const expected_storage& other) noexcept
+  constexpr ExpectedStorage(const ExpectedStorage& other) noexcept
   requires(_triv_copyc)
   = default;
 
-  constexpr expected_storage(const expected_storage& other) noexcept(
+  constexpr ExpectedStorage(const ExpectedStorage& other) noexcept(
     std::is_nothrow_copy_constructible_v<T> && std::is_nothrow_copy_constructible_v<E>)
   requires(std::is_copy_constructible_v<T> && std::is_copy_constructible_v<E> && !_triv_copyc)
       : _valid(other._valid) {
@@ -291,9 +335,9 @@ public:
   }
 
 public:
-  constexpr expected_storage&
-  operator=(expected_storage& other) noexcept(std::is_nothrow_move_constructible_v<T> &&
-                                              std::is_nothrow_move_constructible_v<E>)
+  constexpr ExpectedStorage&
+  operator=(ExpectedStorage& other) noexcept(std::is_nothrow_move_constructible_v<T> &&
+                                             std::is_nothrow_move_constructible_v<E>)
   requires(std::is_move_constructible_v<T> && std::is_move_constructible_v<E>)
   {
     if (std::addressof(other) == this) {
@@ -318,9 +362,9 @@ public:
   }
 
 public:
-  constexpr expected_storage&
-  operator=(const expected_storage& other) noexcept(std::is_nothrow_copy_constructible_v<T> &&
-                                                    std::is_nothrow_copy_constructible_v<E>)
+  constexpr ExpectedStorage&
+  operator=(const ExpectedStorage& other) noexcept(std::is_nothrow_copy_constructible_v<T> &&
+                                                   std::is_nothrow_copy_constructible_v<E>)
   requires(std::is_copy_constructible_v<T> && std::is_copy_constructible_v<E>)
   {
     if (std::addressof(other) == this) {
@@ -345,28 +389,28 @@ public:
   }
 
 public:
-  constexpr ~expected_storage() noexcept
+  constexpr ~ExpectedStorage() noexcept
   requires(_triv_destr_val && _triv_destr_err)
   = default;
 
-  constexpr ~expected_storage() noexcept
+  constexpr ~ExpectedStorage() noexcept
   requires(!_triv_destr_val || !_triv_destr_err)
   {
     static_assert(std::is_nothrow_destructible_v<E>, "E has to be nothrow destructible");
     static_assert(std::is_nothrow_destructible_v<T>, "T has to be nothrow destructible");
     if constexpr (_triv_destr_val && !_triv_destr_err) {
       if (!_valid) {
-        std::destroy_at(std::addressof(_error));
+        std::addressof(_error)->~E();
       }
     } else if constexpr (!_triv_destr_val && _triv_destr_err) {
       if (_valid) {
-        std::destroy_at(std::addressof(_value));
+        std::addressof(_error)->~E();
       }
     } else {
       if (_valid) {
-        std::destroy_at(std::addressof(_value));
+        std::addressof(_error)->~E();
       } else {
-        std::destroy_at(std::addressof(_error));
+        std::addressof(_error)->~E();
       }
     }
   }
@@ -455,43 +499,43 @@ private:
 };
 
 template<typename E>
-class expected_storage<void, E> {
+class ExpectedStorage<void, E> {
 private:
   static constexpr bool _triv_destr = std::is_trivially_destructible_v<E>;
   static constexpr bool _triv_movec = std::is_trivially_move_constructible_v<E>;
   static constexpr bool _triv_copyc = std::is_trivially_copy_constructible_v<E>;
 
 public:
-  constexpr expected_storage() noexcept : _valid(true) {}
+  constexpr ExpectedStorage() noexcept : _valid(true) {}
 
-  constexpr expected_storage(in_place_t) noexcept : _valid(true) {}
+  constexpr ExpectedStorage(in_place_t) noexcept : _valid(true) {}
 
   template<typename... Args>
-  constexpr expected_storage(unexpect_t,
-                             Args&&... arg) noexcept(std::is_nothrow_constructible_v<E, Args...>) :
+  constexpr ExpectedStorage(unexpect_t,
+                            Args&&... arg) noexcept(std::is_nothrow_constructible_v<E, Args...>) :
       _error(std::forward<Args>(arg)...), _valid(false) {}
 
   template<typename U, typename... Args>
-  constexpr expected_storage(unexpect_t, std::initializer_list<U> l, Args&&... arg) noexcept(
+  constexpr ExpectedStorage(unexpect_t, std::initializer_list<U> l, Args&&... arg) noexcept(
     std::is_nothrow_constructible_v<E, std::initializer_list<U>, Args...>) :
       _error(l, std::forward<Args>(arg)...), _valid(false) {}
 
   template<typename G>
-  constexpr explicit(!std::is_convertible_v<const G&, E>) expected_storage(
+  constexpr explicit(!std::is_convertible_v<const G&, E>) ExpectedStorage(
     const unexpected<G>& unex) noexcept(std::is_nothrow_constructible_v<E, const G&>) :
       _error(unex.error()), _valid(false) {}
 
   template<typename G>
   constexpr explicit(!std::is_convertible_v<G, E>)
-    expected_storage(unexpected<G>&& unex) noexcept(std::is_nothrow_constructible_v<E, G>) :
+    ExpectedStorage(unexpected<G>&& unex) noexcept(std::is_nothrow_constructible_v<E, G>) :
       _error(std::move(unex).error()), _valid(false) {}
 
 public:
-  constexpr expected_storage(expected_storage&& other) noexcept
+  constexpr ExpectedStorage(ExpectedStorage&& other) noexcept
   requires(_triv_movec)
   = default;
 
-  constexpr expected_storage(expected_storage&& other) noexcept(
+  constexpr ExpectedStorage(ExpectedStorage&& other) noexcept(
     std::is_nothrow_move_constructible_v<E>)
   requires(std::is_move_constructible_v<E> && !_triv_movec)
       : _valid(std::move(other._valid)) {
@@ -501,11 +545,11 @@ public:
   }
 
 public:
-  constexpr expected_storage(const expected_storage& other) noexcept
+  constexpr ExpectedStorage(const ExpectedStorage& other) noexcept
   requires(_triv_copyc)
   = default;
 
-  constexpr expected_storage(const expected_storage& other) noexcept(
+  constexpr ExpectedStorage(const ExpectedStorage& other) noexcept(
     std::is_nothrow_copy_constructible_v<E>)
   requires(std::is_copy_constructible_v<E> && !_triv_copyc)
       : _valid(other._valid) {
@@ -515,8 +559,8 @@ public:
   }
 
 public:
-  constexpr expected_storage&
-  operator=(expected_storage&& other) noexcept(std::is_nothrow_move_constructible_v<E>)
+  constexpr ExpectedStorage&
+  operator=(ExpectedStorage&& other) noexcept(std::is_nothrow_move_constructible_v<E>)
   requires(std::is_move_constructible_v<E>)
   {
     if (has_value()) {
@@ -527,7 +571,7 @@ public:
       if (other.has_error()) {
         rebind_nullable<true>(_error, std::move(other.get_error()));
       } else {
-        std::destroy_at(std::addressof(_error));
+        std::addressof(_error)->~E();
       }
     }
     _valid = std::move(other._valid);
@@ -535,8 +579,8 @@ public:
   }
 
 public:
-  constexpr expected_storage&
-  operator=(const expected_storage& other) noexcept(std::is_nothrow_copy_constructible_v<E>)
+  constexpr ExpectedStorage&
+  operator=(const ExpectedStorage& other) noexcept(std::is_nothrow_copy_constructible_v<E>)
   requires(std::is_copy_constructible_v<E>)
   {
     if (has_value()) {
@@ -547,7 +591,7 @@ public:
       if (other.has_error()) {
         rebind_nullable<true>(_error, other.get_error());
       } else {
-        std::destroy_at(std::addressof(_error));
+        std::addressof(_error)->~E();
       }
     }
     _valid = other._valid;
@@ -555,15 +599,15 @@ public:
   }
 
 public:
-  constexpr ~expected_storage() noexcept
+  constexpr ~ExpectedStorage() noexcept
   requires(_triv_destr)
   = default;
 
-  constexpr ~expected_storage() noexcept(std::is_nothrow_destructible_v<E>)
+  constexpr ~ExpectedStorage() noexcept(std::is_nothrow_destructible_v<E>)
   requires(!_triv_destr)
   {
     if (has_error()) {
-      std::destroy_at(std::addressof(_error));
+      std::addressof(_error)->~E();
     }
   }
 
@@ -572,7 +616,7 @@ public:
     if (has_value()) {
       return;
     }
-    std::destroy_at(std::addressof(_error));
+    std::addressof(_error)->~E();
     _valid = true;
   }
 
@@ -627,20 +671,30 @@ private:
 } // namespace impl
 
 template<typename T, typename E>
-class expected;
+class Expected;
 
 namespace meta {
 
-NTF_DEFINE_TEMPLATE_CHECKER(expected);
+template<typename>
+struct expected_check : public ::std::false_type {};
+
+template<typename T, typename E>
+struct expected_check<Expected<T, E>> : public ::std::true_type {};
+
+template<typename T>
+constexpr bool expected_check_v = expected_check<T>::value;
+
+template<typename T>
+concept expected_type = expected_check_v<T>;
 
 template<typename Exp, typename T>
 struct expected_check_t : public std::false_type {};
 
 template<typename T>
-struct expected_check_t<expected<T, void>, T> : public std::false_type {};
+struct expected_check_t<Expected<T, void>, T> : public std::false_type {};
 
 template<typename T, typename E>
-struct expected_check_t<expected<T, E>, T> : public std::true_type {};
+struct expected_check_t<Expected<T, E>, T> : public std::true_type {};
 
 template<typename Exp, typename T>
 constexpr bool expected_check_t_v = expected_check_t<Exp, T>::value;
@@ -652,10 +706,10 @@ template<typename Exp, typename E>
 struct expected_check_e : public std::false_type {};
 
 template<typename T>
-struct expected_check_e<expected<T, void>, void> : public std::false_type {};
+struct expected_check_e<Expected<T, void>, void> : public std::false_type {};
 
 template<typename T, typename E>
-struct expected_check_e<expected<T, E>, E> : public std::true_type {};
+struct expected_check_e<Expected<T, E>, E> : public std::true_type {};
 
 template<typename Exp, typename E>
 constexpr bool expected_check_e_v = expected_check_e<Exp, E>::value;
@@ -670,7 +724,7 @@ struct expected_wrap_if {
 
 template<typename T, typename Err>
 struct expected_wrap_if<true, T, Err> {
-  using type = expected<T, Err>;
+  using type = Expected<T, Err>;
 };
 
 } // namespace meta
@@ -704,9 +758,9 @@ template<typename F, typename T>
 using expect_monadic_transform_t = expect_monadic_transform<F, T>::type;
 
 template<typename T, typename E>
-class expected_monadic_ops : public impl::expected_storage<T, E> {
+class ExpectedMonadicOps : public impl::ExpectedStorage<T, E> {
 public:
-  using impl::expected_storage<T, E>::expected_storage;
+  using impl::ExpectedStorage<T, E>::ExpectedStorage;
 
 public:
   template<typename F>
@@ -715,7 +769,7 @@ public:
       using U = impl::expect_monadic_chain_t<F, void>;
       static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
       if (this->has_value()) {
-        return std::invoke(std::forward<F>(func));
+        return std::forward<F>(func)();
       } else {
         return U{unexpect, this->get_error()};
       }
@@ -723,7 +777,7 @@ public:
       using U = impl::expect_monadic_chain_t<F, decltype(this->get())>;
       static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
       if (this->has_value()) {
-        return std::invoke(std::forward<F>(func), this->get());
+        return std::forward<F>(func)(this->get());
       } else {
         return U{unexpect, this->get_error()};
       }
@@ -736,7 +790,7 @@ public:
       using U = impl::expect_monadic_chain_t<F, void>;
       static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
       if (this->has_value()) {
-        return std::invoke(std::forward<F>(func));
+        return std::forward<F>(func)();
       } else {
         return U{unexpect, std::move(this->get_error())};
       }
@@ -744,7 +798,7 @@ public:
       using U = impl::expect_monadic_chain_t<F, decltype(std::move(this->get()))>;
       static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
       if (this->has_value()) {
-        return std::invoke(std::forward<F>(func), std::move(this->get()));
+        return std::forward<F>(func)(std::move(this->get()));
       } else {
         return U{unexpect, std::move(this->get_error())};
       }
@@ -757,7 +811,7 @@ public:
       using U = impl::expect_monadic_chain_t<F, void>;
       static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
       if (this->has_value()) {
-        return std::invoke(std::forward<F>(func));
+        return std::forward<F>(func)();
       } else {
         return U{unexpect, this->get_error()};
       }
@@ -765,7 +819,7 @@ public:
       using U = impl::expect_monadic_chain_t<F, decltype(this->get())>;
       static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
       if (this->has_value()) {
-        return std::invoke(std::forward<F>(func), this->get());
+        return std::forward<F>(func)(this->get());
       } else {
         return U{unexpect, this->get_error()};
       }
@@ -778,7 +832,7 @@ public:
       using U = impl::expect_monadic_chain_t<F, void>;
       static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
       if (this->has_value()) {
-        return std::invoke(std::forward<F>(func));
+        return std::forward<F>(func)();
       } else {
         return U{unexpect, std::move(this->get_error())};
       }
@@ -786,7 +840,7 @@ public:
       using U = impl::expect_monadic_chain_t<F, decltype(std::move(this->get()))>;
       static_assert(meta::expected_with_error<U, E>, "F needs to return an expected with error E");
       if (this->has_value()) {
-        return std::invoke(std::forward<F>(func), std::move(this->get()));
+        return std::forward<F>(func)(std::move(this->get()));
       } else {
         return U{unexpect, std::move(this->get_error())};
       }
@@ -809,7 +863,7 @@ public:
         return G{in_place, this->get()};
       }
     } else {
-      return std::invoke(std::forward<F>(func), this->get_error());
+      return std::forward<F>(func)(this->get_error());
     }
   }
 
@@ -828,7 +882,7 @@ public:
         return G{in_place, std::move(this->get())};
       }
     } else {
-      return std::invoke(std::forward<F>(func), std::move(this->get_error()));
+      return std::forward<F>(func)(std::move(this->get_error()));
     }
   }
 
@@ -847,7 +901,7 @@ public:
         return G{in_place, this->get()};
       }
     } else {
-      return std::invoke(std::forward<F>(func), this->get_error());
+      return std::forward<F>(func)(this->get_error());
     }
   }
 
@@ -866,7 +920,7 @@ public:
         return G{in_place, std::move(this->get())};
       }
     } else {
-      return std::invoke(std::forward<F>(func), std::move(this->get_error()));
+      return std::forward<F>(func)(std::move(this->get_error()));
     }
   }
 
@@ -879,13 +933,13 @@ public:
 
       if (this->has_value()) {
         if constexpr (std::is_void_v<U>) {
-          std::invoke(std::forward<F>(func));
-          return expected<void, E>{in_place};
+          std::forward<F>(func)();
+          return Expected<void, E>{in_place};
         } else {
-          return expected<U, E>{in_place, std::invoke(std::forward<F>(func))};
+          return Expected<U, E>{in_place, std::forward<F>(func)()};
         }
       } else {
-        return expected<U, E>{unexpect, this->get_error()};
+        return Expected<U, E>{unexpect, this->get_error()};
       }
     } else {
       using U = impl::expect_monadic_transform_t<F, decltype(this->get())>;
@@ -893,13 +947,13 @@ public:
 
       if (this->has_value()) {
         if constexpr (std::is_void_v<U>) {
-          std::invoke(std::forward<F>(func), this->get());
-          return expected<void, E>{in_place};
+          std::forward<F>(func)(this->get());
+          return Expected<void, E>{in_place};
         } else {
-          return expected<U, E>{in_place, std::invoke(std::forward<F>(func), this->get())};
+          return Expected<U, E>{in_place, std::forward<F>(func)(this->get())};
         }
       } else {
-        return expected<U, E>{unexpect, this->get_error()};
+        return Expected<U, E>{unexpect, this->get_error()};
       }
     }
   }
@@ -912,13 +966,13 @@ public:
 
       if (this->has_value()) {
         if constexpr (std::is_void_v<U>) {
-          std::invoke(std::forward<F>(func));
-          return expected<void, E>{in_place};
+          std::forward<F>(func)();
+          return Expected<void, E>{in_place};
         } else {
-          return expected<U, E>{in_place, std::invoke(std::forward<F>(func))};
+          return Expected<U, E>{in_place, std::forward<F>(func)()};
         }
       } else {
-        return expected<U, E>{unexpect, std::move(this->get_error())};
+        return Expected<U, E>{unexpect, std::move(this->get_error())};
       }
     } else {
       using U = impl::expect_monadic_transform_t<F, decltype(std::move(this->get()))>;
@@ -926,14 +980,13 @@ public:
 
       if (this->has_value()) {
         if constexpr (std::is_void_v<U>) {
-          std::invoke(std::forward<F>(func), std::move(this->get()));
-          return expected<void, E>{in_place};
+          std::forward<F>(func)(std::move(this->get()));
+          return Expected<void, E>{in_place};
         } else {
-          return expected<U, E>{in_place,
-                                std::invoke(std::forward<F>(func), std::move(this->get()))};
+          return Expected<U, E>{in_place, std::forward<F>(func)(std::move(this->get()))};
         }
       } else {
-        return expected<U, E>{unexpect, std::move(this->get_error())};
+        return Expected<U, E>{unexpect, std::move(this->get_error())};
       }
     }
   }
@@ -946,13 +999,13 @@ public:
 
       if (this->has_value()) {
         if constexpr (std::is_void_v<U>) {
-          std::invoke(std::forward<F>(func));
-          return expected<void, E>{in_place};
+          std::forward<F>(func)();
+          return Expected<void, E>{in_place};
         } else {
-          return expected<U, E>{in_place, std::invoke(std::forward<F>(func))};
+          return Expected<U, E>{in_place, std::forward<F>(func)()};
         }
       } else {
-        return expected<U, E>{unexpect, this->get_error()};
+        return Expected<U, E>{unexpect, this->get_error()};
       }
     } else {
       using U = impl::expect_monadic_transform_t<F, decltype(this->get())>;
@@ -960,13 +1013,13 @@ public:
 
       if (this->has_value()) {
         if constexpr (std::is_void_v<U>) {
-          std::invoke(std::forward<F>(func), this->get());
-          return expected<void, E>{in_place};
+          std::forward<F>(func)(this->get());
+          return Expected<void, E>{in_place};
         } else {
-          return expected<U, E>{in_place, std::invoke(std::forward<F>(func), this->get())};
+          return Expected<U, E>{in_place, std::forward<F>(func)(this->get())};
         }
       } else {
-        return expected<U, E>{unexpect, this->get_error()};
+        return Expected<U, E>{unexpect, this->get_error()};
       }
     }
   }
@@ -979,13 +1032,13 @@ public:
 
       if (this->has_value()) {
         if constexpr (std::is_void_v<U>) {
-          std::invoke(std::forward<F>(func));
-          return expected<void, E>{in_place};
+          std::forward<F>(func)();
+          return Expected<void, E>{in_place};
         } else {
-          return expected<U, E>{in_place, std::invoke(std::forward<F>(func))};
+          return Expected<U, E>{in_place, std::forward<F>(func)()};
         }
       } else {
-        return expected<U, E>{unexpect, std::move(this->get_error())};
+        return Expected<U, E>{unexpect, std::move(this->get_error())};
       }
     } else {
       using U = impl::expect_monadic_transform_t<F, decltype(std::move(this->get()))>;
@@ -993,14 +1046,13 @@ public:
 
       if (this->has_value()) {
         if constexpr (std::is_void_v<U>) {
-          std::invoke(std::forward<F>(func), std::move(this->get()));
-          return expected<void, E>{in_place};
+          std::forward<F>(func)(std::move(this->get()));
+          return Expected<void, E>{in_place};
         } else {
-          return expected<U, E>{in_place,
-                                std::invoke(std::forward<F>(func), std::move(this->get()))};
+          return Expected<U, E>{in_place, std::forward<F>(func)(std::move(this->get()))};
         }
       } else {
-        return expected<U, E>{unexpect, std::move(this->get_error())};
+        return Expected<U, E>{unexpect, std::move(this->get_error())};
       }
     }
   }
@@ -1014,9 +1066,9 @@ public:
       static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
       if (this->has_value()) {
-        return expected<void, G>{in_place};
+        return Expected<void, G>{in_place};
       } else {
-        return expected<T, G>{unexpect, std::invoke(std::forward<F>(func), this->get_error())};
+        return Expected<T, G>{unexpect, std::forward<F>(func)(this->get_error())};
       }
     } else {
       using G = impl::expect_monadic_transform_t<F, decltype(this->get_error())>;
@@ -1024,9 +1076,9 @@ public:
       static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
       if (this->has_value()) {
-        return expected<T, G>{in_place, this->get()};
+        return Expected<T, G>{in_place, this->get()};
       } else {
-        return expected<T, G>{unexpect, std::invoke(std::forward<F>(func), this->get_error())};
+        return Expected<T, G>{unexpect, std::forward<F>(func)(this->get_error())};
       }
     }
   }
@@ -1039,10 +1091,9 @@ public:
       static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
       if (this->has_value()) {
-        return expected<void, G>{in_place};
+        return Expected<void, G>{in_place};
       } else {
-        return expected<T, G>{unexpect,
-                              std::invoke(std::forward<F>(func), std::move(this->get_error()))};
+        return Expected<T, G>{unexpect, std::forward<F>(func)(std::move(this->get_error()))};
       }
     } else {
       using G = impl::expect_monadic_transform_t<F, decltype(std::move(this->get_error()))>;
@@ -1050,10 +1101,9 @@ public:
       static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
       if (this->has_value()) {
-        return expected<T, G>{in_place, std::move(this->get())};
+        return Expected<T, G>{in_place, std::move(this->get())};
       } else {
-        return expected<T, G>{unexpect,
-                              std::invoke(std::forward<F>(func), std::move(this->get_error()))};
+        return Expected<T, G>{unexpect, std::forward<F>(func)(std::move(this->get_error()))};
       }
     }
   }
@@ -1066,9 +1116,9 @@ public:
       static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
       if (this->has_value()) {
-        return expected<void, G>{in_place};
+        return Expected<void, G>{in_place};
       } else {
-        return expected<T, G>{unexpect, std::invoke(std::forward<F>(func), this->get_error())};
+        return Expected<T, G>{unexpect, std::forward<F>(func)(this->get_error())};
       }
     } else {
       using G = impl::expect_monadic_transform_t<F, decltype(this->get_error())>;
@@ -1076,9 +1126,9 @@ public:
       static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
       if (this->has_value()) {
-        return expected<T, G>{in_place, this->get()};
+        return Expected<T, G>{in_place, this->get()};
       } else {
-        return expected<T, G>{unexpect, std::invoke(std::forward<F>(func), this->get_error())};
+        return Expected<T, G>{unexpect, std::forward<F>(func)(this->get_error())};
       }
     }
   }
@@ -1091,10 +1141,9 @@ public:
       static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
       if (this->has_value()) {
-        return expected<void, G>{in_place};
+        return Expected<void, G>{in_place};
       } else {
-        return expected<T, G>{unexpect,
-                              std::invoke(std::forward<F>(func), std::move(this->get_error()))};
+        return Expected<T, G>{unexpect, std::forward<F>(func)(std::move(this->get_error()))};
       }
     } else {
       using G = impl::expect_monadic_transform_t<F, decltype(std::move(this->get_error()))>;
@@ -1102,10 +1151,9 @@ public:
       static_assert(!std::is_reference_v<G>, "F can't return a reference type");
 
       if (this->has_value()) {
-        return expected<T, G>{in_place, std::move(this->get())};
+        return Expected<T, G>{in_place, std::move(this->get())};
       } else {
-        return expected<T, G>{unexpect,
-                              std::invoke(std::forward<F>(func), std::move(this->get_error()))};
+        return Expected<T, G>{unexpect, std::forward<F>(func)(std::move(this->get_error()))};
       }
     }
   }
@@ -1114,19 +1162,19 @@ public:
 } // namespace impl
 
 template<typename T, typename E>
-class expected : public impl::expected_monadic_ops<T, E> {
+class Expected : public impl::ExpectedMonadicOps<T, E> {
 private:
-  using base_t = impl::expected_storage<T, E>;
+  using base_t = impl::ExpectedStorage<T, E>;
 
 public:
   using value_type = T;
   using error_type = E;
 
   template<typename U>
-  using rebind = expected<U, error_type>;
+  using rebind = Expected<U, error_type>;
 
 public:
-  using impl::expected_monadic_ops<T, E>::expected_monadic_ops;
+  using impl::ExpectedMonadicOps<T, E>::ExpectedMonadicOps;
 
 public:
   constexpr explicit operator bool() const noexcept { return this->has_value(); }
@@ -1163,22 +1211,22 @@ public:
 
 public:
   constexpr const T& value() const& {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::as_const(this->get_error())));
+    NTF_THROW_IF(!*this, BadExpectedAccess<E>(std::as_const(this->get_error())));
     return this->get();
   }
 
   constexpr T& value() & {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::as_const(this->get_error())));
+    NTF_THROW_IF(!*this, BadExpectedAccess<E>(std::as_const(this->get_error())));
     return this->get();
   }
 
   constexpr T&& value() && {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::move(this->get_error())));
+    NTF_THROW_IF(!*this, BadExpectedAccess<E>(std::move(this->get_error())));
     return std::move(this->get());
   }
 
   constexpr const T&& value() const&& {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::move(this->get_error())));
+    NTF_THROW_IF(!*this, BadExpectedAccess<E>(std::move(this->get_error())));
     return std::move(this->get());
   }
 
@@ -1230,20 +1278,20 @@ public:
 };
 
 template<typename E>
-class expected<void, E> : public impl::expected_monadic_ops<void, E> {
+class Expected<void, E> : public impl::ExpectedMonadicOps<void, E> {
 private:
-  using base_t = impl::expected_storage<void, E>;
+  using base_t = impl::ExpectedStorage<void, E>;
 
 public:
   using value_type = void;
   using error_type = E;
 
   template<typename U>
-  using rebind = expected<U, error_type>;
+  using rebind = Expected<U, error_type>;
 
 public:
-  using impl::expected_monadic_ops<void, E>::expected_monadic_ops;
-  using impl::expected_monadic_ops<void, E>::operator=;
+  using impl::ExpectedMonadicOps<void, E>::ExpectedMonadicOps;
+  using impl::ExpectedMonadicOps<void, E>::operator=;
 
 public:
   constexpr explicit operator bool() const noexcept { return this->has_value(); }
@@ -1254,11 +1302,11 @@ public:
 
 public:
   constexpr void value() const& {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::as_const(this->get_error())));
+    NTF_THROW_IF(!*this, BadExpectedAccess<E>(std::as_const(this->get_error())));
   }
 
   constexpr void value() && {
-    NTF_THROW_IF(!*this, ::ntf::bad_expected_access<E>(std::move(this->get_error())));
+    NTF_THROW_IF(!*this, BadExpectedAccess<E>(std::move(this->get_error())));
   }
 
 public:
@@ -1297,8 +1345,8 @@ public:
 };
 
 template<typename T, typename E, typename U, typename G>
-constexpr bool operator==(const expected<T, E>& lhs, const expected<U, G>& rhs)
-requires(meta::not_void<T> && meta::not_void<U>)
+constexpr bool operator==(const Expected<T, E>& lhs, const Expected<U, G>& rhs)
+requires(!std::is_void_v<T> && !std::is_void_v<U>)
 {
   return lhs.has_value() != rhs.has_value()
          ? false
@@ -1306,29 +1354,31 @@ requires(meta::not_void<T> && meta::not_void<U>)
 }
 
 template<typename T, typename E, typename G>
-constexpr bool operator==(const expected<T, E>& lhs, const unexpected<G>& unex)
-requires(meta::not_void<T>)
+constexpr bool operator==(const Expected<T, E>& lhs, const unexpected<G>& unex)
+requires(!std::is_void_v<T>)
 {
   return !lhs.has_value() && static_cast<bool>(lhs.value() == unex.value());
 }
 
 template<typename T, typename E, typename U>
-constexpr bool operator==(const expected<T, E>& lhs, const U& val) noexcept
-requires(meta::not_void<T>)
+constexpr bool operator==(const Expected<T, E>& lhs, const U& val) noexcept
+requires(!std::is_void_v<T>)
 {
   return lhs.has_value() && static_cast<bool>(*lhs == val);
 }
 
 template<typename E, typename G>
-constexpr bool operator==(const expected<void, E>& lhs, const expected<void, G>& rhs) noexcept {
+constexpr bool operator==(const Expected<void, E>& lhs, const Expected<void, G>& rhs) noexcept {
   return lhs.has_value() != rhs.has_value()
          ? false
          : lhs.has_value() || static_cast<bool>(lhs.error() == rhs.error());
 }
 
 template<typename E, typename G>
-constexpr bool operator==(const expected<void, E>& lhs, const unexpected<G>& unex) noexcept {
+constexpr bool operator==(const Expected<void, E>& lhs, const unexpected<G>& unex) noexcept {
   return !lhs.has_value() && static_cast<bool>(lhs.error() == unex.value());
 }
 
 } // namespace ntf
+
+#endif // NTF_EXPECTED_HPP_
