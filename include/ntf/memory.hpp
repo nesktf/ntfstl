@@ -19,7 +19,7 @@ rebind_nullable(T& obj, Args&&... args) noexcept(std::is_nothrow_constructible_v
       std::addressof(obj)->~T();
       NTF_PNEW(std::addressof(obj)) T(std::forward<Args>(args)...);
     } else {
-      T old(move(obj)); // Might throw
+      T old(std::move(obj)); // Might throw
       std::addressof(obj)->~T();
 #ifdef __cpp_exceptions
       try {
