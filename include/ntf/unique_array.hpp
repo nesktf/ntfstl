@@ -48,7 +48,7 @@ public:
       Deleter(del), _data{arr}, _count{n} {}
 
   UniqueArray(UniqueArray&& other) noexcept(std::is_nothrow_move_constructible_v<Deleter>) :
-      Deleter(other.get_deleter()), _data{other._data}, _count{other._count} {
+      Deleter(other.deleter()), _data{other._data}, _count{other._count} {
     other._data = 0u;
   }
 
@@ -136,9 +136,9 @@ public:
 
   bool empty() const noexcept { return _data == nullptr; }
 
-  Deleter& deleter() noexcept { return Deleter::get_deleter(); }
+  Deleter& deleter() noexcept { return static_cast<Deleter&>(*this); }
 
-  const Deleter& deleter() const noexcept { Deleter::get_deleter(); }
+  const Deleter& deleter() const noexcept { return static_cast<const Deleter&>(*this); }
 
 public:
   iterator begin() noexcept { return data(); }
@@ -174,31 +174,35 @@ private:
 };
 
 template<typename T, typename Alloc = std::allocator<T>>
-requires(std::is_default_constructible_v<T> && !std::same_as<T, Alloc>)
-UniqueArray<T, AllocatorDelete<Alloc>> make_unique_array(size_t n, const Alloc& alloc = {}) {
+requires(std::is_default_constructible_v<T> && !std::same_as<T, std::remove_cvref_t<Alloc>>)
+auto make_unique_array(size_t n, Alloc&& alloc = {})
+  -> UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>> {
+  AllocatorDelete<std::remove_cvref_t<Alloc>> deleter{alloc};
   T* ptr = alloc.allocate(n);
   NTF_THROW_IF(!ptr, std::bad_alloc());
   impl::construct_array(ptr, n);
-  return UniqueArray<T, AllocatorDelete<Alloc>>(ptr, n);
+  return UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>>(ptr, n, deleter);
 }
 
 template<typename T, typename Alloc = std::allocator<T>>
 requires(std::copy_constructible<T>)
-UniqueArray<T, AllocatorDelete<Alloc>> make_unique_array(size_t n, const T& other,
-                                                         const Alloc& alloc = {}) {
+auto make_unique_array(size_t n, const T& other, Alloc&& alloc = {})
+  -> UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>> {
+  AllocatorDelete<std::remove_cvref_t<Alloc>> deleter{alloc};
   T* ptr = alloc.allocate(n);
   NTF_THROW_IF(!ptr, std::bad_alloc());
   impl::construct_array(ptr, n, other);
-  return UniqueArray<T, AllocatorDelete<Alloc>>(ptr, n);
+  return UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>>(ptr, n, deleter);
 }
 
 template<typename T, typename Alloc = std::allocator<T>>
 requires(std::is_trivially_constructible_v<T>)
-UniqueArray<T, AllocatorDelete<Alloc>> make_unique_array(uninitialized_t, size_t n,
-                                                         const Alloc& alloc = {}) {
+auto make_unique_array(uninitialized_t, size_t n, Alloc&& alloc = {})
+  -> UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>> {
+  AllocatorDelete<std::remove_cvref_t<Alloc>> deleter{alloc};
   T* ptr = alloc.allocate(n);
   NTF_THROW_IF(!ptr, std::bad_alloc());
-  return UniqueArray<T, AllocatorDelete<Alloc>>(ptr, n);
+  return UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>>(ptr, n, deleter);
 }
 
 } // namespace ntf

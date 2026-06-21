@@ -39,7 +39,7 @@ public:
   TrivFn(std::in_place_type_t<F>, Args2&&... args) :
       _func_obj_invoke(&impl::ErasedInvoker<F, true, IsNoexcept, Ret, Args...>::invoke),
       _is_object(true) {
-    NTF_PNEW(_buffer) F(forward<Args2>(args)...);
+    NTF_PNEW(_buffer) F(std::forward<Args2>(args)...);
   }
 
 public:
@@ -135,7 +135,7 @@ public:
       _func_obj_invoke(
         &impl::ErasedInvoker<std::remove_cvref_t<F>, false, IsNoexcept, Ret, Args...>::invoke),
       _is_object(true) {
-    NTF_PNEW(_buffer) std::remove_cvref_t<F>(forward<F>(functor));
+    NTF_PNEW(_buffer) std::remove_cvref_t<F>(std::forward<F>(functor));
   }
 
   template<typename F, typename... Args2>
@@ -184,7 +184,7 @@ public:
   TrivFn& emplace(std::in_place_type_t<F>, Args2&&... args) noexcept {
     _func_obj_invoke = &impl::ErasedInvoker<F, false, IsNoexcept, Ret, Args...>::invoke;
     _is_object = true;
-    NTF_PNEW(_buffer) F(forward<Args2>(args)...);
+    NTF_PNEW(_buffer) F(std::forward<Args2>(args)...);
     return *this;
   }
 
