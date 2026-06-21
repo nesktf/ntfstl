@@ -14,9 +14,9 @@ TEST_CASE("StringBuf construction", "[StringBuf]") {
     REQUIRE(str.size() == 0);
     REQUIRE(str.empty());
     REQUIRE(std::strlen(str.c_str()) == 0);
-    REQUIRE(str[str.size()] == '\0');
+    REQUIRE(*(str.data() + str.size()) == '\0');
     for (size_t i = 0; i < decltype(str)::BUFFER_SIZE; ++i) {
-      REQUIRE(str[i] == '\0');
+      REQUIRE(*(str.data() + i) == '\0');
     }
   }
 
@@ -27,7 +27,7 @@ TEST_CASE("StringBuf construction", "[StringBuf]") {
     REQUIRE(str.capacity() == sizeof(char_array) - 1);
     REQUIRE(str.size() == sizeof(char_array) - 1);
     REQUIRE(!str.empty());
-    REQUIRE(str[str.size()] == '\0');
+    REQUIRE(*(str.data() + str.size()) == '\0');
 
     static constexpr ntf::StringBuf cons_str = char_array;
     static_assert(std::same_as<decltype(cons_str)::char_type, char>);
@@ -45,7 +45,7 @@ TEST_CASE("StringBuf construction", "[StringBuf]") {
     REQUIRE(str.capacity() == sizeof(char_array) - 1);
     REQUIRE(str.size() == sizeof(char_array) - 1);
     REQUIRE(!str.empty());
-    REQUIRE(str[str.size()] == '\0');
+    REQUIRE(*(str.data() + str.size()) == '\0');
 
     static constexpr ntf::StringBuf cons_str = wchar_array;
     static_assert(std::same_as<decltype(cons_str)::char_type, wchar_t>);
@@ -63,7 +63,7 @@ TEST_CASE("StringBuf construction", "[StringBuf]") {
     REQUIRE(str.capacity() == len);
     REQUIRE(str.size() == len);
     REQUIRE(!str.empty());
-    REQUIRE(str[str.size()] == '\0');
+    REQUIRE(*(str.data() + str.size()) == '\0');
     for (size_t i = 0; i < len; ++i) {
       REQUIRE(c_string[i] == str[i]);
     }
@@ -90,7 +90,7 @@ TEST_CASE("StringBuf construction", "[StringBuf]") {
     REQUIRE(str[1] == 'e');
     REQUIRE(str[2] == 's');
     REQUIRE(str[3] == 't');
-    REQUIRE(str[4] == '\0');
+    REQUIRE(*(str.data() + 4) == '\0');
 
     static constexpr ntf::StringBuf<5> cons_str{char_array, sizeof(char_array)};
     static_assert(cons_str.capacity() == 4);
@@ -111,11 +111,11 @@ TEST_CASE("StringBuf construction", "[StringBuf]") {
     for (size_t i = 0; i < str.size(); ++i) {
       REQUIRE(str[i] == char_array[i]);
     }
-    REQUIRE(str[str.size()] == '\0');
+    REQUIRE(*(str.data() + str.size()) == '\0');
 
     // Everything after the string should be zeros
     for (size_t i = str.size(); i < decltype(str)::BUFFER_SIZE; ++i) {
-      REQUIRE(str[i] == '\0');
+      REQUIRE(*(str.data() + i) == '\0');
     }
 
     static constexpr ntf::StringBuf<2 * sizeof(char_array)> cons_str = char_array;
@@ -143,15 +143,15 @@ TEST_CASE("StringBuf resize", "[StringBuf]") {
   str.resize(4);
   REQUIRE(str.size() == 4);
   REQUIRE(!str.empty());
-  REQUIRE(str[str.size()] == '\0');
+  REQUIRE(*(str.data() + str.size()) == '\0');
 
   SECTION("Resize grow zero") {
     str.resize(8);
     REQUIRE(str.size() == 8);
     REQUIRE(!str.empty());
-    REQUIRE(str[str.size()] == '\0');
+    REQUIRE(*(str.data() + str.size()) == '\0');
     for (size_t i = 4; i < 8; ++i) {
-      REQUIRE(str[i] == '\0');
+      REQUIRE(*(str.data() + i) == '\0');
     }
   }
 
@@ -159,18 +159,23 @@ TEST_CASE("StringBuf resize", "[StringBuf]") {
     str.resize(8, 'a');
     REQUIRE(str.size() == 8);
     REQUIRE(!str.empty());
-    REQUIRE(str[str.size()] == '\0');
+    REQUIRE(*(str.data() + str.size()) == '\0');
     for (size_t i = 4; i < 8; ++i) {
-      REQUIRE(str[i] == 'a');
+      REQUIRE(*(str.data() + i) == 'a');
     }
   }
 }
 
 TEST_CASE("StringBuf checked access", "[StringBuf]") {
-  ntf::StringBuf<32> str;
+  ntf::StringBuf<32> str_empty;
+  REQUIRE_THROWS(str_empty.at(64));
+  REQUIRE_THROWS(str_empty.at(32));
+  REQUIRE_THROWS(str_empty.at(31));
+
+  ntf::StringBuf<32> str = char_array;
   REQUIRE_THROWS(str.at(64));
   REQUIRE_THROWS(str.at(32));
-  REQUIRE_NOTHROW(str.at(31));
+  REQUIRE_NOTHROW(str.at(sizeof(char_array) - 2));
 }
 
 TEST_CASE("StringBuf iterator access", "[StringBuf]") {
@@ -205,7 +210,7 @@ TEST_CASE("StringBuf iterator access", "[StringBuf]") {
       REQUIRE(*it == char_array[i]);
       --i;
     }
-    i = 0;
+    i = str.size() - 1;
     for (auto it = str.crbegin(); it != str.crend(); ++it) {
       REQUIRE(*it == char_array[i]);
       --i;

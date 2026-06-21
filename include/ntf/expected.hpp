@@ -166,15 +166,15 @@ constexpr void expect_rebind_error(T& val, E& err, Args&&... args) noexcept(
   } else {
     // If is err a constructed object
     if constexpr (std::is_nothrow_constructible_v<E, Args...>) {
-      std::addressof(val)->~T();
+      std::addressof(err)->~E();
       NTF_PNEW(std::addressof(err)) E(std::forward<Args>(args)...);
     } else if constexpr (std::is_nothrow_move_constructible_v<E>) {
       E new_err(std::forward<Args>(args)...); // Might throw
-      std::addressof(val)->~T();
+      std::addressof(err)->~E();
       NTF_PNEW(std::addressof(err)) E(std::move(new_err));
     } else {
       E old_err(std::move(err)); // Might throw
-      std::addressof(val)->~T();
+      std::addressof(err)->~E();
 #ifdef __cpp_exceptions
       try {
 #endif
@@ -221,15 +221,15 @@ constexpr void expect_rebind_value(T& val, E& err, Args&&... args) noexcept(
   } else {
     // If is err a constructed object
     if constexpr (std::is_nothrow_constructible_v<T, Args...>) {
-      std::addressof(val)->~T();
+      std::addressof(err)->~E();
       NTF_PNEW(std::addressof(val)) T(std::forward<Args>(args)...);
     } else if constexpr (std::is_nothrow_move_constructible_v<T>) {
       T new_val(std::forward<Args>(args)...); // Might throw
-      std::addressof(val)->~T();
+      std::addressof(err)->~E();
       NTF_PNEW(std::addressof(val)) T(std::move(new_val));
     } else {
       E old_err(std::move(err)); // Might or might not throw
-      std::addressof(val)->~T();
+      std::addressof(err)->~E();
 #ifdef __cpp_exceptions
       try {
 #endif

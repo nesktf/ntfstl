@@ -66,7 +66,7 @@ constexpr T* construct_array(T* ptr, size_t n,
                              const T& obj) noexcept(std::is_nothrow_copy_constructible_v<T>) {
   if constexpr (std::is_nothrow_copy_constructible_v<T>) {
     for (size_t i = 0; i < n; ++i) {
-      NTF_PNEW(ptr + i) T();
+      NTF_PNEW(ptr + i) T(obj);
     }
   } else {
     i64 i = 0;

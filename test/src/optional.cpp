@@ -50,14 +50,14 @@ TEST_CASE("optional construction", "[optional]") {
     REQUIRE(*opt_ptr == some_address);
 
     ntf::Optional<void*> opt_ptr_null{nullptr};
-    REQUIRE(!opt_ptr_null.has_value());
+    REQUIRE(opt_ptr_null.has_value());
 
     ntf::Optional<NullableThing> opt_custom{NullableThing{1}};
     REQUIRE(opt_custom.has_value());
     REQUIRE((*opt_custom).value == 1);
 
     ntf::Optional<NullableThing> opt_custom_null{NullableThing{}};
-    REQUIRE(!opt_custom_null.has_value());
+    REQUIRE(opt_custom_null.has_value());
   }
 
   SECTION("inplace construction") {
@@ -70,14 +70,14 @@ TEST_CASE("optional construction", "[optional]") {
     REQUIRE(*opt_ptr == some_address);
 
     ntf::Optional<void*> opt_ptr_null{std::in_place, nullptr};
-    REQUIRE(!opt_ptr_null.has_value());
+    REQUIRE(opt_ptr_null.has_value());
 
     ntf::Optional<NullableThing> opt_custom{std::in_place, 1};
     REQUIRE(opt_custom.has_value());
     REQUIRE((*opt_custom).value == 1);
 
     ntf::Optional<NullableThing> opt_custom_null{std::in_place, 0};
-    REQUIRE(!opt_custom_null.has_value());
+    REQUIRE(opt_custom_null.has_value());
   }
 }
 
