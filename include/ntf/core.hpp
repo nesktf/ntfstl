@@ -79,6 +79,39 @@ private:
   bool _engaged;
 };
 
+// Same as C++23's std::bind_front, but supporting compile time bound values
+template<auto Func, auto... Binds, typename... Params>
+constexpr auto bind_front(Params&&... params) {
+  // TODO: Forward captured params instead of copying
+  if constexpr (sizeof...(params) == 0) {
+    return []<typename... InnerParam>(InnerParam&&... ps) {
+      return Func(Binds..., std::forward<InnerParam>(ps)...);
+    };
+  } else {
+    return
+      [... params = std::forward<Params>(params)]<typename... InnerParam>(InnerParam&&... ps) {
+        return Func(Binds..., params..., std::forward<InnerParam>(ps)...);
+      };
+  }
+}
+
+// Same as C++23's std::bind_back, but supporting compile time bound values
+template<auto Func, auto... Binds, typename... Params>
+constexpr auto bind_back(Params&&... params) {
+  // TODO: Forward captured params instead of copying
+  if constexpr (sizeof...(params) == 0) {
+    return []<typename... InnerParam>(InnerParam&&... ps) {
+      return Func(std::forward<InnerParam>(ps)..., Binds...);
+    };
+
+  } else {
+    return
+      [... params = std::forward<Params>(params)]<typename... InnerParam>(InnerParam&&... ps) {
+        return Func(std::forward<InnerParam>(ps)..., params..., Binds...);
+      };
+  }
+}
+
 } // namespace ntf
 
 #endif // NTF_CORE_HPP_

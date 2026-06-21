@@ -1,7 +1,7 @@
 #ifndef NTF_MEMORY_HPP_
 #define NTF_MEMORY_HPP_
 
-#include "./core.hpp"
+#include <ntf/core.hpp>
 
 #include <memory>
 
@@ -82,6 +82,28 @@ constexpr T* construct_array(T* ptr, size_t n,
   }
   return std::launder(ptr);
 }
+
+template<typename T, bool IsConst, bool IsNoexcept, typename Ret, typename... Args>
+struct ErasedInvoker {
+  static constexpr Ret invoke(void* ptr, Args... args) noexcept(IsNoexcept) {
+    if constexpr (std::is_void_v<Ret>) {
+      (*std::launder(static_cast<T*>(ptr)))(std::forward<Args>(args)...);
+    } else {
+      return (*std::launder(static_cast<T*>(ptr)))(std::forward<Args>(args)...);
+    }
+  }
+};
+
+template<typename T, bool IsNoexcept, typename Ret, typename... Args>
+struct ErasedInvoker<T, true, IsNoexcept, Ret, Args...> {
+  static constexpr Ret invoke(const void* ptr, Args... args) noexcept(IsNoexcept) {
+    if constexpr (std::is_void_v<Ret>) {
+      (*std::launder(static_cast<const T*>(ptr)))(std::forward<Args>(args)...);
+    } else {
+      return (*std::launder(static_cast<const T*>(ptr)))(std::forward<Args>(args)...);
+    }
+  }
+};
 
 } // namespace impl
 
