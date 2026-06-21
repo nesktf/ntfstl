@@ -46,6 +46,14 @@ struct uninitialized_t {};
 
 constexpr inline uninitialized_t uninitialized;
 
+using std::in_place_t;
+constexpr in_place_t in_place;
+
+using std::in_place_type_t;
+
+template<typename T>
+constexpr in_place_type_t<T> in_place_type;
+
 template<typename... Fs>
 struct OverloadFn : Fs... {
   using Fs::operator()...;
