@@ -34,16 +34,16 @@ private:
 } // namespace
 
 TEST_CASE("UniqueArray empty construction", "[UniqueArray]") {
-  ntf::UniqueArray<int, ntf::AllocatorDelete<std::allocator<int>>> arr;
+  ntf::UniqueArray<int, ntf::ArrayDelete<std::allocator<int>>> arr;
   REQUIRE(arr.empty());
 
-  ntf::UniqueArray<int, ntf::AllocatorDelete<std::allocator<int>>> arr_null = nullptr;
+  ntf::UniqueArray<int, ntf::ArrayDelete<std::allocator<int>>> arr_null = nullptr;
   REQUIRE(arr_null.empty());
 
   IntArena arena;
   IntAlloc alloc{arena};
-  ntf::AllocatorDelete<IntAlloc> deleter{alloc};
-  ntf::UniqueArray<int, ntf::AllocatorDelete<IntAlloc>> arr_alloc{deleter};
+  ntf::ArrayDelete<IntAlloc> deleter{alloc};
+  ntf::UniqueArray<int, ntf::ArrayDelete<IntAlloc>> arr_alloc{deleter};
   REQUIRE(arr_alloc.empty());
 }
 
@@ -53,7 +53,7 @@ TEST_CASE("UniqueArray construction and allocation", "[UniqueArray]") {
 
   SECTION("Construct from pointer") {
     std::allocator<int> alloc;
-    ntf::AllocatorDelete<std::allocator<int>> deleter{alloc};
+    ntf::ArrayDelete<std::allocator<int>> deleter{alloc};
 
     auto* ptr = alloc.allocate(count);
     for (size_t i = 0; i < count; ++i) {

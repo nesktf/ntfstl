@@ -17,6 +17,38 @@ concept has_noexcept_what_cstr = requires(const E& err) {
 
 } // namespace meta
 
+namespace impl {
+
+template<bool Valid, typename T, typename... Args>
+constexpr void
+rebind_nullable(T& obj, Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
+  static_assert(std::is_nothrow_destructible_v<T>, "T has to be nothrow destructible");
+  if constexpr (Valid) {
+    // If is obj a constructed object
+    if constexpr (std::is_nothrow_constructible_v<T>) {
+      std::addressof(obj)->~T();
+      NTF_PNEW(std::addressof(obj)) T(std::forward<Args>(args)...);
+    } else {
+      T old(std::move(obj)); // Might throw
+      std::addressof(obj)->~T();
+#ifdef __cpp_exceptions
+      try {
+#endif
+        NTF_PNEW(std::addressof(obj)) T(std::forward<Args>(args)...);
+#ifdef __cpp_exceptions
+      } catch (...) {
+        NTF_PNEW(std::addressof(obj)) T(std::move(old));
+        throw;
+      }
+#endif
+    }
+  } else {
+    NTF_PNEW(std::addressof(obj)) T(std::forward<Args>(args)...); // Might throw
+  }
+}
+
+} // namespace impl
+
 template<typename>
 class BadExpectedAccess;
 

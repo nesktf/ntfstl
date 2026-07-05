@@ -3,19 +3,20 @@
 
 #include <ntf/macro.hpp>
 
-#include <utility>
-
-enum NTF_PNEW_T {
-  NTF_PNEW_TAG,
-};
-
-constexpr void* operator new(size_t, void* ptr, NTF_PNEW_T) {
-  return ptr;
-}
-
-#define NTF_PNEW(_ptr) ::new (_ptr, NTF_PNEW_TAG)
-
 namespace ntf {
+
+class exception {
+public:
+  exception() noexcept = default;
+  virtual ~exception() noexcept = default;
+  exception(const exception&) noexcept = default;
+  exception& operator=(const exception&) noexcept = default;
+  exception(exception&&) noexcept = default;
+  exception& operator=(exception&&) noexcept = default;
+
+public:
+  virtual const char* what() const noexcept = 0;
+};
 
 namespace numdefs {
 
@@ -42,31 +43,169 @@ static_assert(sizeof(f64) == 8);
 
 using namespace numdefs;
 
-struct uninitialized_t {};
-
-constexpr inline uninitialized_t uninitialized;
-
-using std::in_place_t;
-constexpr in_place_t in_place;
-
-using std::in_place_type_t;
+namespace meta {
 
 template<typename T>
-constexpr in_place_type_t<T> in_place_type;
-
-template<typename... Fs>
-struct OverloadFn : Fs... {
-  using Fs::operator()...;
+struct remove_reference {
+  using type = T;
 };
 
-template<typename... Fs>
-OverloadFn(Fs...) -> OverloadFn<Fs...>;
+template<typename T>
+struct remove_reference<T&> {
+  using type = T;
+};
 
-template<typename F>
+template<typename T>
+struct remove_reference<T&&> {
+  using type = T;
+};
+
+template<typename T>
+using remove_reference_t = typename remove_reference<T>::type;
+
+template<typename T, T Val>
+struct integral_constant {
+  static constexpr T value = Val;
+};
+
+struct true_type : public integral_constant<bool, true> {};
+
+struct false_type : public integral_constant<bool, false> {};
+
+template<typename T>
+struct type_identity {
+  using type = T;
+};
+
+template<typename T>
+auto try_add_lvalue_ref(int) -> type_identity<T&>;
+
+template<typename T> // T = void
+auto try_add_lvalue_ref(...) -> type_identity<T>;
+
+template<typename T>
+auto try_add_rvalue_ref(int) -> type_identity<T&&>;
+
+template<typename T> // T = void
+auto try_add_rvalue_ref(...) -> type_identity<T&>;
+
+template<typename T>
+struct add_lvalue_reference : public decltype(try_add_rvalue_ref<T>(0)) {};
+
+template<typename T>
+using add_lvalue_reference_t = typename add_lvalue_reference<T>::type;
+
+template<typename T>
+struct add_rvalue_reference : public decltype(try_add_rvalue_ref<T>(0)) {};
+
+template<typename T>
+using add_rvalue_reference_t = typename add_rvalue_reference<T>::type;
+
+template<typename T>
+struct is_reference : public false_type {};
+
+template<typename T>
+struct is_reference<T&> : public true_type {};
+
+template<typename T>
+struct is_reference<T&&> : public true_type {};
+
+template<typename T>
+constexpr inline bool is_reference_v = is_reference<T>::value;
+
+template<typename T>
+struct is_lvalue_reference : public false_type {};
+
+template<typename T>
+struct is_lvalue_reference<T&> : public true_type {};
+
+template<typename T>
+constexpr inline bool is_lvalue_reference_v = is_lvalue_reference<T>::value;
+
+template<typename T>
+struct is_rvalue_reference : public false_type {};
+
+template<typename T>
+struct is_rvalue_reference<T&&> : public true_type {};
+
+template<typename T>
+constexpr inline bool is_rvalue_reference_v = is_rvalue_reference<T>::value;
+
+template<typename T>
+constexpr bool false_value = false;
+
+template<typename T, typename U>
+struct is_same : public false_type {};
+
+template<typename T>
+struct is_same<T, T> : public true_type {};
+
+template<typename T, typename U>
+constexpr inline bool is_same_v = is_same<T, U>::value;
+
+template<typename T, typename U>
+concept same_as = is_same_v<T, U>;
+
+} // namespace meta
+
+template<typename T>
+meta::add_rvalue_reference_t<T> declval() noexcept {
+  static_assert(meta::false_value<T>, "declval no tallowed in evaluated context");
+}
+
+template<typename T>
+constexpr meta::remove_reference_t<T>&& move(T&& thing) noexcept {
+  return static_cast<meta::remove_reference_t<T>&&>(thing);
+}
+
+template<typename T>
+NTF_NODISCARD constexpr T&& forward(meta::remove_reference_t<T>& thing) noexcept {
+  return static_cast<T&&>(thing);
+}
+
+template<typename T>
+NTF_NODISCARD constexpr T&& forward(meta::remove_reference_t<T>&& thing) noexcept {
+  static_assert(!meta::is_lvalue_reference_v<T>, "Don't cast things to lvalue");
+  return static_cast<T&&>(thing);
+}
+
+template<typename T>
+constexpr const T& max(const T& a, const T& b) {
+  return a < b ? b : a;
+}
+
+template<typename T>
+constexpr const T& min(const T& a, const T& b) {
+  return a < b ? a : b;
+}
+
+template<typename T>
+NTF_NODISCARD constexpr T* launder(T* ptr) noexcept {
+#if defined(__GNUC__) && defined(__has_builtin)
+  return __builtin_launder(ptr);
+#else
+  return ptr;
+#endif
+}
+
+template<typename T>
+NTF_NODISCARD constexpr T* launder_as(void* ptr) noexcept {
+  return launder(static_cast<T*>(ptr));
+}
+
+namespace meta {
+
+template<typename Fn, typename... Args>
+concept is_nothrow_invocable_v =
+  requires(Fn func, Args... args) { requires noexcept(func(forward<Args>(args)...)); };
+
+} // namespace meta
+
+template<typename Fn>
 class DeferFn {
 public:
   template<typename Func>
-  constexpr DeferFn(Func&& func) : _func(std::forward<Func>(func)), _engaged(true) {}
+  constexpr DeferFn(Func&& func) : _func(forward<Func>(func)), _engaged(true) {}
 
   constexpr ~DeferFn() noexcept {
     if (_engaged) {
@@ -78,47 +217,31 @@ public:
   NTF_NO_COPY(DeferFn);
 
 public:
-  void invoke() noexcept { _func(); }
+  constexpr void invoke() noexcept {
+    static_assert(meta::is_nothrow_invocable_v<Fn>, "Fn has to be nothrow invocable with no args");
+    _func();
+  }
 
-  void disengage() noexcept { _engaged = false; }
+  constexpr void disengage() noexcept { _engaged = false; }
 
 private:
-  F _func;
+  Fn _func;
   bool _engaged;
 };
 
-// Same as C++23's std::bind_front, but supporting compile time bound values
-template<auto Func, auto... Binds, typename... Params>
-constexpr auto bind_front(Params&&... params) {
-  // TODO: Forward captured params instead of copying
-  if constexpr (sizeof...(params) == 0) {
-    return []<typename... InnerParam>(InnerParam&&... ps) {
-      return Func(Binds..., std::forward<InnerParam>(ps)...);
-    };
-  } else {
-    return
-      [... params = std::forward<Params>(params)]<typename... InnerParam>(InnerParam&&... ps) {
-        return Func(Binds..., params..., std::forward<InnerParam>(ps)...);
-      };
-  }
-}
+struct uninitialized_t {};
 
-// Same as C++23's std::bind_back, but supporting compile time bound values
-template<auto Func, auto... Binds, typename... Params>
-constexpr auto bind_back(Params&&... params) {
-  // TODO: Forward captured params instead of copying
-  if constexpr (sizeof...(params) == 0) {
-    return []<typename... InnerParam>(InnerParam&&... ps) {
-      return Func(std::forward<InnerParam>(ps)..., Binds...);
-    };
+constexpr inline uninitialized_t uninitialized;
 
-  } else {
-    return
-      [... params = std::forward<Params>(params)]<typename... InnerParam>(InnerParam&&... ps) {
-        return Func(std::forward<InnerParam>(ps)..., params..., Binds...);
-      };
-  }
-}
+struct in_place_t {};
+
+constexpr inline in_place_t in_place;
+
+template<typename T>
+struct in_place_type_t {};
+
+template<typename T>
+constexpr inline in_place_type_t<T> in_place_type;
 
 } // namespace ntf
 

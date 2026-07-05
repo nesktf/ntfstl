@@ -1,15 +1,120 @@
 #ifndef NTF_UNIQUE_ARRAY_HPP_
 #define NTF_UNIQUE_ARRAY_HPP_
 
-#include "./core.hpp"
-#include "./memory.hpp"
-
-#include <memory>
+#include <ntf/concepts.hpp>
+#include <ntf/memory.hpp>
 
 namespace ntf {
 
+namespace impl {
+
+template<meta::nothrow_default_constructible T>
+constexpr T* construct_array(T* ptr, size_t n) noexcept(meta::nothrow_default_constructible<T>) {
+  if constexpr (meta::nothrow_default_constructible<T>) {
+    for (size_t i = 0; i < n; ++i) {
+      NTF_PNEW(ptr + i) T();
+    }
+  } else {
+    i64 i = 0;
+    DeferFn on_err = [&]() {
+      for (; i >= 0; --i) {
+        (ptr + i)->~T();
+      }
+    };
+    for (; i < (i64)n; ++i) {
+      NTF_PNEW(ptr + i) T();
+    }
+    on_err.disengage();
+  }
+  return launder(ptr);
+}
+
+template<meta::copy_constructible T>
+constexpr T* construct_array(T* ptr, size_t n,
+                             const T& obj) noexcept(meta::nothrow_copy_constructible<T>) {
+  if constexpr (meta::nothrow_copy_constructible<T>) {
+    for (size_t i = 0; i < n; ++i) {
+      NTF_PNEW(ptr + i) T(obj);
+    }
+  } else {
+    i64 i = 0;
+    DeferFn on_err = [&]() {
+      for (; i >= 0; --i) {
+        (ptr + i)->~T();
+      }
+    };
+    for (; i < (i64)n; ++i) {
+      NTF_PNEW(ptr + i) T(obj);
+    }
+    on_err.disengage();
+  }
+  return launder(ptr);
+}
+
+} // namespace impl
+
+template<typename Alloc>
+class ArrayDelete : private Alloc {
+public:
+  using value_type = typename Alloc::value_type;
+  using pointer = typename Alloc::pointer;
+  using size_type = typename Alloc::size_type;
+  using difference_type = typename Alloc::difference_type;
+
+public:
+  template<typename U>
+  using rebind = ArrayDelete<U>;
+
+public:
+  constexpr ArrayDelete() noexcept(meta::nothrow_default_constructible<Alloc>) : Alloc() {}
+
+  constexpr ArrayDelete(const Alloc& alloc) noexcept(meta::nothrow_copy_constructible<Alloc>) :
+      Alloc(alloc) {}
+
+public:
+  constexpr ArrayDelete(const ArrayDelete&) noexcept(meta::nothrow_copy_constructible<Alloc>) =
+    default;
+  constexpr ~ArrayDelete() noexcept = default;
+
+  template<typename U>
+  requires(!meta::same_as<value_type, U>)
+  constexpr ArrayDelete(const rebind<U>& other) noexcept(meta::nothrow_copy_constructible<Alloc>) :
+      Alloc(other.allocator()) {}
+
+public:
+  template<typename U = value_type>
+  requires(std::convertible_to<pointer, U*>)
+  constexpr void operator()(U* ptr, size_type n) noexcept {
+    static_assert(!std::is_void_v<value_type>, "Can't delete incomplete type");
+    static_assert(sizeof(value_type), "Can't delete incomplete type");
+    static_assert(std::is_nothrow_destructible_v<value_type>, "Can't delete throwing type");
+    if constexpr (!std::is_trivially_destructible_v<value_type>) {
+      for (size_type i = 0; i < n; ++i) {
+        (ptr + n)->~value_type();
+      }
+    }
+    Alloc::deallocate(ptr, n);
+  }
+
+public:
+  Alloc& allocator() noexcept { return static_cast<Alloc&>(*this); }
+
+  const Alloc& allocator() const noexcept { return static_cast<const Alloc&>(*this); }
+
+public:
+  template<typename U>
+  constexpr bool operator==(const rebind<U>&) noexcept {
+    return true;
+  }
+
+  template<typename U>
+  constexpr bool operator!=(const rebind<U>&) noexcept {
+    return false;
+  }
+};
+
 template<typename T, typename Deleter>
-requires(!std::is_reference_v<T>)
+requires(!meta::is_reference_v<T>)
 class UniqueArray : private Deleter {
 public:
   using value_type = T;
@@ -19,7 +124,7 @@ public:
   using pointer = T*;
   using const_pointer = const T*;
 
-  static_assert(std::is_same_v<value_type, typename Deleter::value_type>,
+  static_assert(meta::same_as<value_type, typename Deleter::value_type>,
                 "Deleter has to delete T");
   static_assert(std::is_same_v<pointer, typename Deleter::pointer>, "Deleter has to delete T");
 
@@ -29,32 +134,36 @@ public:
   using reverse_iterator = std::reverse_iterator<iterator>;
   using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
+  struct ArrayData {
+    pointer ptr;
+    size_type size;
+  };
+
 public:
-  UniqueArray() noexcept(std::is_nothrow_default_constructible_v<Deleter>) :
+  UniqueArray() noexcept(meta::nothrow_default_constructible<Deleter>) :
       Deleter(), _data{nullptr}, _count{0u} {}
 
-  UniqueArray(std::nullptr_t) noexcept(std::is_nothrow_default_constructible_v<Deleter>) :
+  UniqueArray(std::nullptr_t) noexcept(meta::nothrow_default_constructible<Deleter>) :
       Deleter(), _data{nullptr}, _count{0u} {}
 
-  explicit UniqueArray(const Deleter& del) noexcept(
-    std::is_nothrow_copy_constructible_v<Deleter>) : Deleter(del), _data{nullptr}, _count{0u} {}
+  explicit UniqueArray(const Deleter& del) noexcept(meta::nothrow_copy_constructible<Deleter>) :
+      Deleter(del), _data{nullptr}, _count{0u} {}
 
-  UniqueArray(pointer arr,
-              size_type n) noexcept(std::is_nothrow_default_constructible_v<Deleter>) :
+  UniqueArray(pointer arr, size_type n) noexcept(meta::nothrow_default_constructible<Deleter>) :
       Deleter(), _data{arr}, _count{n} {}
 
   UniqueArray(pointer arr, size_type n,
-              const Deleter& del) noexcept(std::is_nothrow_copy_constructible_v<Deleter>) :
+              const Deleter& del) noexcept(meta::nothrow_copy_constructible<Deleter>) :
       Deleter(del), _data{arr}, _count{n} {}
 
-  UniqueArray(UniqueArray&& other) noexcept(std::is_nothrow_move_constructible_v<Deleter>) :
+  UniqueArray(UniqueArray&& other) noexcept(meta::nothrow_move_constructible<Deleter>) :
       Deleter(other.deleter()), _data{other._data}, _count{other._count} {
     other._data = 0u;
   }
 
   UniqueArray(const UniqueArray&) = delete;
 
-  ~UniqueArray() noexcept(std::is_nothrow_destructible_v<T>) {
+  ~UniqueArray() noexcept(meta::nothrow_destructible<T>) {
     if (!empty()) {
       Deleter::operator()(_data, _count);
     }
@@ -74,12 +183,12 @@ public:
 
   void reset() noexcept { assign(nullptr, 0u); }
 
-  NTF_NODISCARD std::pair<pointer, size_type> release() noexcept {
+  NTF_NODISCARD ArrayData release() noexcept {
     pointer ptr = data();
     size_type sz = size();
     _count = 0;
     _data = nullptr;
-    return std::make_pair(ptr, sz);
+    return {ptr, sz};
   }
 
 public:
@@ -95,8 +204,8 @@ public:
     }
 
     Deleter::operator=(static_cast<Deleter&&>(other));
-    _data = std::move(other._data);
-    _count = std::move(other._count);
+    _data = move(other._data);
+    _count = move(other._count);
 
     other._data = nullptr;
 
@@ -173,36 +282,36 @@ private:
   size_type _count;
 };
 
-template<typename T, typename Alloc = std::allocator<T>>
-requires(std::is_default_constructible_v<T> && !std::same_as<T, std::remove_cvref_t<Alloc>>)
+template<typename T, typename Alloc = DefaultAlloc<T>>
+requires(meta::default_constructible<T> && !meta::same_as<T, std::remove_cvref_t<Alloc>>)
 auto make_unique_array(size_t n, Alloc&& alloc = {})
-  -> UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>> {
-  AllocatorDelete<std::remove_cvref_t<Alloc>> deleter{alloc};
+  -> UniqueArray<T, ArrayDelete<std::remove_cvref_t<Alloc>>> {
+  ArrayDelete<std::remove_cvref_t<Alloc>> deleter{alloc};
   T* ptr = alloc.allocate(n);
   NTF_THROW_IF(!ptr, std::bad_alloc());
   impl::construct_array(ptr, n);
-  return UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>>(ptr, n, deleter);
+  return UniqueArray<T, ArrayDelete<std::remove_cvref_t<Alloc>>>(ptr, n, deleter);
 }
 
 template<typename T, typename Alloc = std::allocator<T>>
 requires(std::copy_constructible<T>)
 auto make_unique_array(size_t n, const T& other, Alloc&& alloc = {})
-  -> UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>> {
-  AllocatorDelete<std::remove_cvref_t<Alloc>> deleter{alloc};
+  -> UniqueArray<T, ArrayDelete<std::remove_cvref_t<Alloc>>> {
+  ArrayDelete<std::remove_cvref_t<Alloc>> deleter{alloc};
   T* ptr = alloc.allocate(n);
   NTF_THROW_IF(!ptr, std::bad_alloc());
   impl::construct_array(ptr, n, other);
-  return UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>>(ptr, n, deleter);
+  return UniqueArray<T, ArrayDelete<std::remove_cvref_t<Alloc>>>(ptr, n, deleter);
 }
 
 template<typename T, typename Alloc = std::allocator<T>>
 requires(std::is_trivially_constructible_v<T>)
 auto make_unique_array(uninitialized_t, size_t n, Alloc&& alloc = {})
-  -> UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>> {
-  AllocatorDelete<std::remove_cvref_t<Alloc>> deleter{alloc};
+  -> UniqueArray<T, ArrayDelete<std::remove_cvref_t<Alloc>>> {
+  ArrayDelete<std::remove_cvref_t<Alloc>> deleter{alloc};
   T* ptr = alloc.allocate(n);
   NTF_THROW_IF(!ptr, std::bad_alloc());
-  return UniqueArray<T, AllocatorDelete<std::remove_cvref_t<Alloc>>>(ptr, n, deleter);
+  return UniqueArray<T, ArrayDelete<std::remove_cvref_t<Alloc>>>(ptr, n, deleter);
 }
 
 } // namespace ntf
