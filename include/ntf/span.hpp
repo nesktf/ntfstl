@@ -68,16 +68,15 @@ public:
   requires(extent == 1u || extent == dynamic_extent)
       : impl::SpanExtent<Extent>{1u}, _data{::ntf::addressof(obj)} {}
 
-  template<typename It>
-  explicit(extent != dynamic_extent) constexpr Span(It first, size_type count)
-  requires(meta::convertible_to<meta::remove_reference_t<decltype(*declval<It>())> (*)[],
-                                element_type (*)[]>)
-      : impl::SpanExtent<Extent>{count}, _data{&*first} {}
+  template<typename U>
+  explicit(extent != dynamic_extent) constexpr Span(U* data, size_type count)
+      // requires(meta::convertible_to<U (*)[], element_type (*)[]>)
+      : impl::SpanExtent<Extent>{count}, _data{data} {}
 
-  template<typename It, typename End>
+  template<typename It>
   // requires(std::contiguous_iterator<It> && std::sized_sentinel_for<End, It>)
-  requires(!meta::same_as<End, size_t>)
-  explicit(extent != dynamic_extent) constexpr Span(It first, End last)
+  requires(!meta::same_as<It, size_t>)
+  explicit(extent != dynamic_extent) constexpr Span(It first, It last)
   requires(meta::convertible_to<meta::remove_reference_t<decltype(*declval<It>())> (*)[],
                                 element_type (*)[]>)
       : impl::SpanExtent<Extent>{last - first}, _data{&*first} {}
