@@ -2,7 +2,6 @@
 #define NTF_MEMORY_HPP_
 
 #include <ntf/impl/concepts.hpp>
-#include <ntf/impl/core.hpp>
 
 extern "C" {
 

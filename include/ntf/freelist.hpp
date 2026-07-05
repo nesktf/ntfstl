@@ -76,11 +76,11 @@ public:
     return _do_insert(::ntf::forward<Args>(args)...);
   }
 
-  void re::ntf::move(element_slot slot) {
+  void remove(element_slot slot) {
     if (!has_element(slot)) {
       return;
     }
-    _do_re::ntf::move(slot);
+    _do_remove(slot);
   }
 
 private:
@@ -105,7 +105,7 @@ private:
     return pos;
   }
 
-  void _do_re::ntf::move(element_slot pos) {
+  void _do_remove(element_slot pos) {
     auto& slot = _slots[pos];
     NTF_ASSERT(slot.next == ELEM_ACTIVE);
     if constexpr (!meta::trivially_destructible<T>) {

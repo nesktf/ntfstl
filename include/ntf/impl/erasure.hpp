@@ -1,7 +1,7 @@
 #ifndef NTF_ERASURE_HPP_
 #define NTF_ERASURE_HPP_
 
-#include <ntf/impl/core.hpp>
+#include <ntf/core.hpp>
 
 namespace ntf::impl {
 

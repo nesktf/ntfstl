@@ -1,7 +1,6 @@
 #ifndef NTF_STRING_HPP_
 #define NTF_STRING_HPP_
 
-#include <ntf/impl/core.hpp>
 #include <ntf/impl/iterator.hpp>
 
 namespace ntf {

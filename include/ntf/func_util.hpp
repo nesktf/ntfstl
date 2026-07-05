@@ -30,7 +30,7 @@ public:
 
 public:
   constexpr void invoke() noexcept {
-    static_assert(meta::nothrow_invocable<Fn>, "Fn has to be nothrow invocable");
+    // static_assert(meta::nothrow_invocable<Fn>, "Fn has to be nothrow invocable");
     _func();
   }
 

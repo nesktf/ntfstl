@@ -1,7 +1,7 @@
 #ifndef NTF_CONCEPTS_HPP_
 #define NTF_CONCEPTS_HPP_
 
-#include <ntf/impl/core.hpp>
+#include <ntf/core.hpp>
 
 namespace ntf::meta {
 

@@ -1,7 +1,7 @@
 #ifndef NTF_THREADPOOL_HPP_
 #define NTF_THREADPOOL_HPP_
 
-#include <ntf/impl/core.hpp>
+#include <ntf/core.hpp>
 
 // TODO: Remove stdlib here
 #include <condition_variable>

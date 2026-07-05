@@ -84,10 +84,10 @@ public:
   alignas(Align) u8 data[Size];
 };
 
-template<typename T>
-class TypeBuf : private AlignedBuffer<sizeof(T), alignof(T)> {
+template<typename T, size_t Size = sizeof(T), size_t Align = alignof(T)>
+class TypeBuffer : private AlignedBuffer<Size, Align> {
 private:
-  using Base = AlignedBuffer<sizeof(T), alignof(T)>;
+  using Base = AlignedBuffer<Size, Align>;
 
 public:
   template<typename U = T>
@@ -96,7 +96,7 @@ public:
   }
 
 public:
-  constexpr TypeBuf() noexcept = default;
+  constexpr TypeBuffer() noexcept = default;
 
 public:
   template<typename... Args>
@@ -129,11 +129,11 @@ public:
   const T* operator->() const noexcept { return data(); }
 };
 
-template<typename T, size_t N>
-class TypeArrayBuf : private AlignedBuffer<N * sizeof(T), alignof(T)> {
+template<typename T, size_t N, size_t Size = sizeof(T), size_t Align = alignof(T)>
+class TypeArrayBuffer : private AlignedBuffer<N * Size, Align> {
 private:
   static_assert(N > 0, "N has to be at least 1");
-  using Base = AlignedBuffer<N * sizeof(T), alignof(T)>;
+  using Base = AlignedBuffer<N * Size, Align>;
 
 public:
   using size_type = typename Base::size_type;
@@ -145,7 +145,7 @@ public:
   using const_reverse_iterator = impl::reverse_iter_wrap<const_iterator>;
 
 public:
-  constexpr TypeArrayBuf() noexcept = default;
+  constexpr TypeArrayBuffer() noexcept = default;
 
 public:
   template<typename... Args>
@@ -172,22 +172,22 @@ public:
 
 public:
   T& at(size_type idx) {
-    NTF_THROW_IF(idx >= size(), MsgException("Index out of range in TypeArrayBuf"));
+    NTF_THROW_IF(idx >= size(), MsgException("Index out of range in TypeArrayBuffer"));
     return data()[idx];
   }
 
   const T& at(size_type idx) const {
-    NTF_THROW_IF(idx >= size(), MsgException("Index out of range in TypeArrayBuf"));
+    NTF_THROW_IF(idx >= size(), MsgException("Index out of range in TypeArrayBuffer"));
     return data()[idx];
   }
 
   T& operator[](size_type idx) {
-    NTF_ASSERT(idx < size(), "Index out of range In TypeArrayBuf");
+    NTF_ASSERT(idx < size(), "Index out of range In TypeArrayBuffer");
     return data()[idx];
   }
 
   const T& operator[](size_type idx) const {
-    NTF_ASSERT(idx < size(), "Index out of range In TypeArrayBuf");
+    NTF_ASSERT(idx < size(), "Index out of range In TypeArrayBuffer");
     return data()[idx];
   }
 
