@@ -1,5 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ntf/core.hpp>
+#include <ntf/func_util.hpp>
 
 namespace {
 

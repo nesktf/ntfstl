@@ -1,397 +1,267 @@
 #ifndef NTF_MEMORY_HPP_
 #define NTF_MEMORY_HPP_
 
-#include <ntf/core.hpp>
+#include <ntf/impl/concepts.hpp>
+#include <ntf/impl/core.hpp>
 
-#include <memory>
+extern "C" {
+
+NTF_DEFINE_HANDLE(ntf_Arena);
+
+size_t ntf_system_page_size() noexcept;
+int ntf_arena_init(ntf_Arena* arena, size_t capacity) noexcept;
+void ntf_arena_destroy(ntf_Arena arena) noexcept;
+void ntf_arena_clear(ntf_Arena arena) noexcept;
+void* ntf_arena_alloc(ntf_Arena arena, size_t size, size_t align) noexcept;
+
+} // extern "C"
+
+enum NTF_PNEW_T {
+  NTF_PNEW_TAG,
+};
+
+constexpr inline void* operator new(size_t, void* ptr, NTF_PNEW_T) {
+  return ptr;
+}
+
+constexpr inline void operator delete(void*, void*, NTF_PNEW_T) {}
+
+#define NTF_PNEW(_ptr) ::new (_ptr, ::NTF_PNEW_TAG)
 
 namespace ntf {
 
+struct alloc_arg_t {};
+
+constexpr inline alloc_arg_t alloc_arg;
+
+template<typename T, typename... Args>
+T* construct_at(T* ptr, Args&&... args) {
+  return NTF_PNEW(ptr) T(::ntf::forward<Args>(args)...);
+}
+
+template<typename T, typename... Args>
+T* construct_offset(T* ptr, size_t i, Args&&... args) {
+  return NTF_PNEW(ptr + i) T(::ntf::forward<Args>(args)...);
+}
+
+template<typename T>
+void destroy_at(T* ptr) noexcept(meta::nothrow_destructible<T>) {
+  ptr->~T();
+}
+
+template<typename T>
+void destroy_offset(T* ptr, size_t i) noexcept(meta::nothrow_destructible<T>) {
+  (ptr + i)->~T();
+}
+
 namespace impl {
 
-template<bool Valid, typename T, typename... Args>
-constexpr void
-rebind_nullable(T& obj, Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
-  static_assert(std::is_nothrow_destructible_v<T>, "T has to be nothrow destructible");
-  if constexpr (Valid) {
-    // If is obj a constructed object
-    if constexpr (std::is_nothrow_constructible_v<T>) {
-      std::addressof(obj)->~T();
-      NTF_PNEW(std::addressof(obj)) T(std::forward<Args>(args)...);
-    } else {
-      T old(std::move(obj)); // Might throw
-      std::addressof(obj)->~T();
-#ifdef __cpp_exceptions
-      try {
-#endif
-        NTF_PNEW(std::addressof(obj)) T(std::forward<Args>(args)...);
-#ifdef __cpp_exceptions
-      } catch (...) {
-        NTF_PNEW(std::addressof(obj)) T(std::move(old));
-        throw;
-      }
-#endif
-    }
-  } else {
-    NTF_PNEW(std::addressof(obj)) T(std::forward<Args>(args)...); // Might throw
-  }
-}
-
-template<typename T>
-requires(std::is_default_constructible_v<T>)
-constexpr T* construct_array(T* ptr,
-                             size_t n) noexcept(std::is_nothrow_default_constructible_v<T>) {
-  if constexpr (std::is_nothrow_default_constructible_v<T>) {
+template<meta::nothrow_default_constructible T>
+constexpr T* construct_array(T* ptr, size_t n) noexcept(meta::nothrow_default_constructible<T>) {
+  if constexpr (meta::nothrow_default_constructible<T>) {
     for (size_t i = 0; i < n; ++i) {
-      NTF_PNEW(ptr + i) T();
+      construct_offset(ptr, i);
     }
   } else {
     i64 i = 0;
-    DeferFn on_err = [&]() {
-      for (; i >= 0; --i) {
-        (ptr + i)->~T();
+#if __cpp_exceptions
+    try {
+#endif
+      for (; i < (i64)n; ++i) {
+        construct_offset(ptr, i);
       }
-    };
-    for (; i < (i64)n; ++i) {
-      NTF_PNEW(ptr + i) T();
+#if __cpp_exceptions
+    } catch (...) {
+      for (; i >= 0; --i) {
+        destroy_offset(ptr, i);
+      }
+      throw;
     }
-    on_err.disengage();
+#endif
   }
-  return std::launder(ptr);
+  return launder(ptr);
 }
 
-template<typename T>
-requires(std::is_copy_constructible_v<T>)
+template<meta::copy_constructible T>
 constexpr T* construct_array(T* ptr, size_t n,
-                             const T& obj) noexcept(std::is_nothrow_copy_constructible_v<T>) {
-  if constexpr (std::is_nothrow_copy_constructible_v<T>) {
+                             const T& obj) noexcept(meta::nothrow_copy_constructible<T>) {
+  if constexpr (meta::nothrow_copy_constructible<T>) {
     for (size_t i = 0; i < n; ++i) {
-      NTF_PNEW(ptr + i) T(obj);
+      construct_offset(ptr, i, obj);
     }
   } else {
     i64 i = 0;
-    DeferFn on_err = [&]() {
-      for (; i >= 0; --i) {
-        (ptr + i)->~T();
+#if __cpp_exceptions
+    try {
+#endif
+      for (; i < (i64)n; ++i) {
+        construct_offset(ptr, i, obj);
       }
-    };
-    for (; i < (i64)n; ++i) {
-      NTF_PNEW(ptr + i) T(obj);
+#if __cpp_exceptions
+    } catch (...) {
+      for (; i >= 0; --i) {
+        destroy_offset(ptr, i);
+      }
+      throw;
     }
-    on_err.disengage();
+#endif
   }
-  return std::launder(ptr);
+  return launder(ptr);
 }
-
-template<typename T, bool IsConst, bool IsNoexcept, typename Ret, typename... Args>
-struct ErasedInvoker {
-  static constexpr Ret invoke(void* ptr, Args... args) noexcept(IsNoexcept) {
-    if constexpr (std::is_void_v<Ret>) {
-      (*std::launder(static_cast<T*>(ptr)))(std::forward<Args>(args)...);
-    } else {
-      return (*std::launder(static_cast<T*>(ptr)))(std::forward<Args>(args)...);
-    }
-  }
-};
-
-template<typename T, bool IsNoexcept, typename Ret, typename... Args>
-struct ErasedInvoker<T, true, IsNoexcept, Ret, Args...> {
-  static constexpr Ret invoke(const void* ptr, Args... args) noexcept(IsNoexcept) {
-    if constexpr (std::is_void_v<Ret>) {
-      (*std::launder(static_cast<const T*>(ptr)))(std::forward<Args>(args)...);
-    } else {
-      return (*std::launder(static_cast<const T*>(ptr)))(std::forward<Args>(args)...);
-    }
-  }
-};
 
 } // namespace impl
 
-template<size_t Size, size_t Align>
-struct AlignedBuffer {
+template<typename T>
+class DefaultAlloc {
 public:
+  using value_type = T;
+  using pointer = T*;
   using size_type = size_t;
-
-  static constexpr size_type BufferSize = Size;
-  static constexpr size_type BufferAlign = Align;
+  using difference_type = ptrdiff_t;
 
 public:
-  AlignedBuffer() = default;
+  template<typename U>
+  using rebind = DefaultAlloc<U>;
 
 public:
-  template<typename T>
-  T* as() {
-    return reinterpret_cast<T*>(data);
+  constexpr DefaultAlloc() noexcept = default;
+  constexpr DefaultAlloc(const DefaultAlloc&) noexcept = default;
+
+  template<typename U>
+  requires(!meta::is_same_v<U, T>)
+  constexpr DefaultAlloc(const rebind<U>&) noexcept {}
+
+public:
+  constexpr T* allocate(size_t n) {
+    T* ptr = static_cast<T*>(::malloc(n * sizeof(T)));
+    NTF_THROW_IF(!ptr, BadAlloc());
+    return ptr;
   }
 
-  template<typename T>
-  const T* as() const {
-    return reinterpret_cast<const T*>(data);
-  }
-
-  template<typename T>
-  T* as(size_type i) {
-    return reinterpret_cast<T*>(data) + i;
-  }
-
-  template<typename T>
-  const T* as(size_type i) const {
-    return reinterpret_cast<const T*>(data) + i;
-  }
-
-  template<typename T>
-  T* launder_as() {
-    return std::launder(as<T>());
-  }
-
-  template<typename T>
-  const T* launder_as() const {
-    return std::launder(as<T>());
-  }
-
-  template<typename T>
-  T* launder_as(size_type i) {
-    return std::launder(as<T>(i));
-  }
-
-  template<typename T>
-  const T* launder_as(size_type i) const {
-    return std::launder(as<T>(i));
+  constexpr void deallocate(T* ptr, size_t n) noexcept {
+    NTF_UNUSED(n);
+    ::free(ptr);
   }
 
 public:
-  template<typename T, typename... Args>
-  T& construct(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
-    return *(NTF_PNEW(as<T>()) T(std::forward<Args>(args)...));
-  }
+  constexpr bool operator==(const DefaultAlloc&) const noexcept { return true; }
 
-  template<typename T, typename... Args>
-  T& construct_offset(size_t offset,
-                      Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
-    return *(NTF_PNEW(as<T>() + offset) T(std::forward<Args>(args)...));
+  template<typename U>
+  requires(!meta::is_same_v<U, T>)
+  constexpr bool operator==(const rebind<U>&) const noexcept {
+    return true;
   }
+};
 
-  template<typename T>
-  void destroy() {
-    launder_as<T>()->~T();
-  }
+static_assert(meta::allocator_of<DefaultAlloc<int>, int>);
 
-  template<typename T>
-  void destroy_offset(size_t idx) {
-    launder_as<T>(idx)->~T();
-  }
-
-public:
-  alignas(Align) u8 data[Size];
+struct ArenaDelete {
+  void operator()(ntf_Arena arena) noexcept { ::ntf_arena_destroy(arena); }
 };
 
 template<typename T>
-class TypeBuf : private AlignedBuffer<sizeof(T), alignof(T)> {
+class ArenaAlloc;
+
+class Arena {
+public:
+  template<typename T>
+  using bind_alloc = ArenaAlloc<T>;
+
+public:
+  constexpr Arena(ntf_Arena arena) noexcept : _arena(arena) {}
+
+  constexpr Arena(Arena&& other) noexcept : _arena(other._arena) { other._arena = nullptr; }
+
+  ~Arena() noexcept { ::ntf_arena_destroy(_arena); }
+
+  Arena& operator=(Arena&& other) noexcept {
+    ::ntf_arena_destroy(_arena);
+
+    _arena = other._arena;
+    other._arena = nullptr;
+
+    return *this;
+  }
+
+  NTF_NO_COPY(Arena);
+
+public:
+  void* allocate(size_t size, size_t align) const {
+    void* ptr = ::ntf_arena_alloc(_arena, size, align);
+    NTF_THROW_IF(!ptr, BadAlloc());
+    return ptr;
+  }
+
+  void deallocate(void* ptr, size_t size) const noexcept {
+    NTF_UNUSED(ptr);
+    NTF_UNUSED(size);
+  }
+
+public:
+  constexpr ntf_Arena arena() const noexcept { return _arena; }
+
+  constexpr operator ntf_Arena() const noexcept { return _arena; }
+
 private:
-  using Base = AlignedBuffer<sizeof(T), alignof(T)>;
-
-public:
-  template<typename U = T>
-  static constexpr bool check_params() noexcept {
-    return (alignof(U) <= Base::BufferAlign) && (sizeof(U) == Base::BufferSize);
-  }
-
-public:
-  constexpr TypeBuf() noexcept = default;
-
-public:
-  template<typename... Args>
-  T& construct(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
-    return Base::template construct<T>(std::forward<Args>(args)...);
-  }
-
-  void destroy() noexcept { Base::template destroy<T>(); }
-
-public:
-  T* data() noexcept { return Base::template launder_as<T>(); }
-
-  const T* data() const noexcept { return Base::template launder_as<T>(); }
-
-  T* raw_data() noexcept { return Base::template as<T>(); }
-
-  const T* raw_data() const noexcept { return Base::template as<T>(); }
-
-  u8* as_bytes() noexcept { return Base::data; }
-
-  const u8* as_bytes() const noexcept { return Base::data; }
-
-public:
-  T& operator*() noexcept { return *data(); }
-
-  const T& operator*() const noexcept { return *data(); }
-
-  T* operator->() noexcept { return data(); }
-
-  const T* operator->() const noexcept { return data(); }
+  ntf_Arena _arena;
 };
 
-template<typename T, size_t N>
-class TypeArrayBuf : private AlignedBuffer<N * sizeof(T), alignof(T)> {
+static_assert(meta::mem_resource<Arena>);
+
+template<typename T>
+class ArenaAlloc {
+public:
+  using value_type = T;
+  using pointer = T*;
+  using size_type = size_t;
+  using difference_type = ptrdiff_t;
+
+public:
+  template<typename U>
+  using rebind = ArenaAlloc<U>;
+
+public:
+  constexpr ArenaAlloc(const Arena& arena) noexcept : _arena(arena.arena()) {}
+
+  constexpr ArenaAlloc(ntf_Arena arena) noexcept : _arena(arena) {}
+
+  constexpr ArenaAlloc(const ArenaAlloc&) noexcept = default;
+
+  template<typename U>
+  requires(!meta::is_same_v<U, T>)
+  constexpr ArenaAlloc(const rebind<U>& other) noexcept : _arena(other.arena()) {}
+
+public:
+  T* allocate(size_t n) {
+    T* ptr = static_cast<T*>(::ntf_arena_alloc(_arena, n * sizeof(T), alignof(T)));
+    NTF_THROW_IF(!ptr, BadAlloc());
+    return ptr;
+  }
+
+  void deallocate(T* ptr, size_t n) noexcept {
+    NTF_UNUSED(ptr);
+    NTF_UNUSED(n);
+  }
+
+public:
+  constexpr ntf_Arena arena() const { return _arena; }
+
+public:
+  constexpr bool operator==(const ArenaAlloc& other) const noexcept {
+    return _arena == other._arena;
+  }
+
+  template<typename U>
+  requires(!meta::is_same_v<U, T>)
+  constexpr bool operator==(const rebind<U>& other) const noexcept {
+    return _arena == &other.arena();
+  }
+
 private:
-  static_assert(N > 0, "N has to be at least 1");
-  using Base = AlignedBuffer<N * sizeof(T), alignof(T)>;
-
-public:
-  using size_type = typename Base::size_type;
-
-  using iterator = T*;
-  using const_iterator = const T*;
-
-  using reverse_iterator = std::reverse_iterator<iterator>;
-  using const_reverse_iterator = std::reverse_iterator<const_iterator>;
-
-public:
-  constexpr TypeArrayBuf() noexcept = default;
-
-public:
-  template<typename... Args>
-  T& construct(size_type i, Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
-    return Base::template construct_offset<T>(i, std::forward<Args>(args)...);
-  }
-
-  void destroy(size_type i) noexcept { Base::template destroy_offset<T>(i); }
-
-public:
-  constexpr size_type size() const noexcept { return N; }
-
-  T* data() noexcept { return Base::template launder_as<T>(); }
-
-  const T* data() const noexcept { return Base::template launder_as<T>(); }
-
-  T* raw_data() noexcept { return Base::template as<T>(); }
-
-  const T* raw_data() const noexcept { return Base::template as<T>(); }
-
-  u8* as_bytes() noexcept { return Base::data; }
-
-  const u8* as_bytes() const noexcept { return Base::data; }
-
-public:
-  T& at(size_type idx) {
-    NTF_THROW_IF(idx >= size(), std::out_of_range("Index out of range in TypeArrayBuf, was " +
-                                                  std::to_string(idx)));
-    return data()[idx];
-  }
-
-  const T& at(size_type idx) const {
-    NTF_THROW_IF(idx >= size(), std::out_of_range("Index out of range in TypeArrayBuf, was " +
-                                                  std::to_string(idx)));
-    return data()[idx];
-  }
-
-  T& operator[](size_type idx) {
-    NTF_ASSERT(idx < size(), "Index out of range In TypeArrayBuf");
-    return data()[idx];
-  }
-
-  const T& operator[](size_type idx) const {
-    NTF_ASSERT(idx < size(), "Index out of range In TypeArrayBuf");
-    return data()[idx];
-  }
-
-public:
-  iterator begin() noexcept { return data(); }
-
-  const_iterator begin() const noexcept { return data(); }
-
-  const_iterator cbegin() const noexcept { return data(); }
-
-  iterator end() noexcept { return data() + size(); }
-
-  const_iterator end() const noexcept { return data() + size(); }
-
-  const_iterator cend() const noexcept { return data() + size(); }
-
-  reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
-
-  const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
-
-  const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(end()); }
-
-  reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
-
-  const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
-
-  const_reverse_iterator crend() const noexcept { return const_reverse_iterator(begin()); }
+  ntf_Arena _arena;
 };
 
-template<typename Allocator>
-class AllocatorDelete : private Allocator {
-public:
-  using value_type = std::allocator_traits<Allocator>::value_type;
-  using pointer = std::allocator_traits<Allocator>::pointer;
-  using size_type = std::allocator_traits<Allocator>::size_type;
-  using difference_type = std::allocator_traits<Allocator>::difference_type;
-
-public:
-  template<typename U>
-  using rebind = AllocatorDelete<U>;
-
-public:
-  constexpr AllocatorDelete() noexcept(std::is_nothrow_default_constructible_v<Allocator>) :
-      Allocator() {}
-
-  constexpr AllocatorDelete(const Allocator& alloc) noexcept(
-    std::is_nothrow_copy_constructible_v<Allocator>) : Allocator(alloc) {}
-
-public:
-  constexpr AllocatorDelete(const AllocatorDelete&) noexcept(
-    std::is_nothrow_copy_constructible_v<Allocator>) = default;
-  constexpr ~AllocatorDelete() noexcept = default;
-
-  template<typename U>
-  requires(!std::same_as<value_type, U>)
-  constexpr AllocatorDelete(const rebind<U>& other) noexcept(
-    std::is_nothrow_copy_constructible_v<Allocator>) : Allocator(other.allocator()) {}
-
-public:
-  template<typename U = value_type>
-  requires(std::convertible_to<pointer, U*>)
-  constexpr void operator()(U* ptr) noexcept {
-    static_assert(!std::is_void_v<value_type>, "Can't delete incomplete type");
-    static_assert(sizeof(value_type), "Can't delete incomplete type");
-    static_assert(std::is_nothrow_destructible_v<value_type>, "Can't delete throwing type");
-    if constexpr (!std::is_trivially_destructible_v<value_type>) {
-      ptr->~value_type();
-    }
-    Allocator::deallocate(ptr, 1);
-  }
-
-  template<typename U = value_type>
-  requires(std::convertible_to<pointer, U*>)
-  constexpr void operator()(U* ptr, size_type n) noexcept {
-    static_assert(!std::is_void_v<value_type>, "Can't delete incomplete type");
-    static_assert(sizeof(value_type), "Can't delete incomplete type");
-    static_assert(std::is_nothrow_destructible_v<value_type>, "Can't delete throwing type");
-    if constexpr (!std::is_trivially_destructible_v<value_type>) {
-      for (size_type i = 0; i < n; ++i) {
-        (ptr + n)->~value_type();
-      }
-    }
-    Allocator::deallocate(ptr, n);
-  }
-
-public:
-  Allocator& allocator() noexcept { return static_cast<Allocator&>(*this); }
-
-  const Allocator& allocator() const noexcept { return static_cast<const Allocator&>(*this); }
-
-public:
-  template<typename U>
-  constexpr bool operator==(const rebind<U>&) noexcept {
-    return true;
-  }
-
-  template<typename U>
-  constexpr bool operator!=(const rebind<U>&) noexcept {
-    return false;
-  }
-};
+static_assert(meta::allocator_of<ArenaAlloc<int>, int>);
 
 } // namespace ntf
 

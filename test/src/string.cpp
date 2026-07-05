@@ -1,6 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
-
-#include <ntf/stringbuf.hpp>
+#include <ntf/string.hpp>
 
 static constexpr char char_array[] = "test_data";
 static constexpr wchar_t wchar_array[] = L"test_data";

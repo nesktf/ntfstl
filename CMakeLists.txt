@@ -12,13 +12,15 @@ option(NTF_TESTS "Build tests" OFF)
 file(GLOB_RECURSE NTF_HEADERS
   LIST_DIRECTORIES FALSE
   CONFIGURE_DEPENDS
-  ${CMAKE_CURRENT_SOURCE_DIR}/include/ntf*.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/include/ntf**.hpp
 )
 
-add_library(ntfstl INTERFACE)
+file(GLOB_RECURSE NTF_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/**.cpp)
+
+add_library(ntfstl STATIC ${NTF_SOURCES})
 add_library(ntfstl::ntfstl ALIAS ntfstl)
 target_include_directories(ntfstl
-  INTERFACE
+  PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
