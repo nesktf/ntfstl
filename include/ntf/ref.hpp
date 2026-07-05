@@ -3,8 +3,6 @@
 
 #include <ntf/memory.hpp>
 
-#include <stdexcept>
-
 namespace ntf {
 
 template<typename T>
@@ -26,14 +24,12 @@ public:
   requires(std::is_convertible_v<U*, T*>)
   constexpr Ref(U& obj) noexcept : _ptr(std::addressof(obj)) {}
 
-  constexpr explicit Ref(pointer ptr) : _ptr(ptr) {
-    NTF_THROW_IF(!_ptr, std::runtime_error("Assigning nullptr to Ref"));
-  }
+  constexpr explicit Ref(pointer ptr) : _ptr(ptr) { NTF_ASSERT(_ptr, "Assigning nullptr to Ref"); }
 
   template<typename U>
   requires(std::is_convertible_v<U*, T*> && !std::same_as<U, T>)
   constexpr Ref(U* ptr) : _ptr(ptr) {
-    NTF_THROW_IF(!_ptr, std::runtime_error("Assigning nullptr to Ref"));
+    NTF_ASSERT(_ptr, "Assigning nullptr to Ref");
   }
 
   template<typename U>
@@ -58,7 +54,7 @@ public:
   constexpr reference operator*() const noexcept { return *_ptr; }
 
   constexpr Ref& operator=(pointer ptr) {
-    NTF_THROW_IF(!ptr, std::runtime_error("Assigning nullptr to Ref"));
+    NTF_ASSERT(_ptr, "Assigning nullptr to Ref");
     _ptr = ptr;
     return *this;
   }
@@ -174,7 +170,13 @@ public:
 public:
   explicit constexpr FnRef(Ret (*func_ptr)(Args...) noexcept(IsNoexcept)) :
       _func_obj_invoke(nullptr), _func_ptr_invoke(func_ptr) {
-    NTF_THROW_IF(!func_ptr, std::runtime_error("Assigning null function pointer to FnRef"));
+    NTF_ASSERT(func_ptr, "Assigning null function pointer to FnRef");
+  }
+
+  constexpr FnRef(void* ptr, Ret (*func_ptr)(void*, Args...) noexcept(IsNoexcept)) :
+      _func_obj_invoke(ptr), _func_ptr_invoke(func_ptr) {
+    NTF_ASSERT(func_ptr, "Assigning null function pointer to FnRef");
+    NTF_ASSERT(ptr, "Assigning nullptr to FnRef object");
   }
 
   template<typename T>

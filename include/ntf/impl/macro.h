@@ -1,10 +1,9 @@
-#ifndef NTF_MACRO_HPP_
-#define NTF_MACRO_HPP_
+#ifndef NTF_MACRO_H_
+#define NTF_MACRO_H_
 
 #include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 #if defined(_MSC_VER)
@@ -62,46 +61,33 @@
 #define NTF_NORETURN  [[noreturn]]
 #define NTF_NODISCARD [[nodiscard]]
 
-#define NTF_PANIC_1(_msg) \
-  ::ntf::impl::panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__, _msg);
-#define NTF_PANIC_0()  NTF_PANIC_1("It's over");
+#define NTF_PANIC_1(_msg) ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__, _msg);
+#define NTF_PANIC_0()     NTF_PANIC_1("It's over");
 #define NTF_PANIC(...) NTF_APPLY_VA_ARGS(NTF_JOIN(NTF_PANIC_, NTF_NARG(__VA_ARGS__)), __VA_ARGS__)
 
-namespace ntf::impl {
-
-NTF_NORETURN NTF_INLINE void panic_handler(const char* file, const char* func, int line,
-                                           const char* msg) {
-  ::fprintf(stderr, "PANIC %s@%s:%d: %s", func, file, line, msg);
-  NTF_ABORT();
-  NTF_UNREACHABLE();
-}
-
-} // namespace ntf::impl
-
-#define NTF_TODO_1(_msg)                                                                \
-  do {                                                                                  \
-    ::ntf::impl::panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__, "TODO: " _msg); \
+#define NTF_TODO_1(_msg)                                                          \
+  do {                                                                            \
+    ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__, "TODO: " _msg); \
   } while (0)
-#define NTF_TODO_0()                                                             \
-  do {                                                                           \
-    NTF_PANIC("TODO");                                                           \
-    ::ntf::impl::panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__, "TODO"); \
+#define NTF_TODO_0()                                                       \
+  do {                                                                     \
+    ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__, "TODO"); \
   } while (0)
 #define NTF_TODO(...) NTF_APPLY_VA_ARGS(NTF_JOIN(NTF_TODO_, NTF_NARG(__VA_ARGS__)), __VA_ARGS__)
 
-#define NTF_ASSERT_2(_cond, _msg)                                                        \
-  do {                                                                                   \
-    if (NTF_UNLIKELY(!(_cond))) {                                                        \
-      ::ntf::impl::panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__,                \
-                                 "Assertion failure (" NTF_STRINGIFY(_cond) "): " _msg); \
-    }                                                                                    \
+#define NTF_ASSERT_2(_cond, _msg)                                                  \
+  do {                                                                             \
+    if (NTF_UNLIKELY(!(_cond))) {                                                  \
+      ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__,                \
+                           "Assertion failure (" NTF_STRINGIFY(_cond) "): " _msg); \
+    }                                                                              \
   } while (0)
-#define NTF_ASSERT_1(_cond)                                                       \
-  do {                                                                            \
-    if (NTF_UNLIKELY(!(_cond))) {                                                 \
-      ::ntf::impl::panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__,         \
-                                 "Assertion failure (" NTF_STRINGIFY(_cond) ")"); \
-    }                                                                             \
+#define NTF_ASSERT_1(_cond)                                                 \
+  do {                                                                      \
+    if (NTF_UNLIKELY(!(_cond))) {                                           \
+      ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__,         \
+                           "Assertion failure (" NTF_STRINGIFY(_cond) ")"); \
+    }                                                                       \
   } while (0)
 #define NTF_ASSERT(...) \
   NTF_APPLY_VA_ARGS(NTF_JOIN(NTF_ASSERT_, NTF_NARG(__VA_ARGS__)), __VA_ARGS__)
@@ -140,4 +126,15 @@ NTF_NORETURN NTF_INLINE void panic_handler(const char* file, const char* func, i
   _typename(const _typename&) = delete; \
   _typename& operator=(const _typename&) = delete
 
-#endif // NTF_MACRO_HPP_
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+NTF_NORETURN void ntf__panic_handler(const char* file, const char* func, int line,
+                                     const char* msg);
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
+
+#endif // NTF_MACRO_H_

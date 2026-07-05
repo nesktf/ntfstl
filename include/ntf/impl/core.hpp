@@ -1,22 +1,9 @@
 #ifndef NTF_CORE_HPP_
 #define NTF_CORE_HPP_
 
-#include <ntf/macro.hpp>
+#include <ntf/impl/macro.h>
 
 namespace ntf {
-
-class exception {
-public:
-  exception() noexcept = default;
-  virtual ~exception() noexcept = default;
-  exception(const exception&) noexcept = default;
-  exception& operator=(const exception&) noexcept = default;
-  exception(exception&&) noexcept = default;
-  exception& operator=(exception&&) noexcept = default;
-
-public:
-  virtual const char* what() const noexcept = 0;
-};
 
 namespace numdefs {
 
@@ -62,6 +49,50 @@ struct remove_reference<T&&> {
 
 template<typename T>
 using remove_reference_t = typename remove_reference<T>::type;
+
+template<typename T>
+struct remove_const {
+  using type = T;
+};
+
+template<typename T>
+struct remove_const<const T> {
+  using type = T;
+};
+
+template<typename T>
+using remove_const_t = typename remove_const<T>::type;
+
+template<typename T>
+struct remove_cv {
+  using type = T;
+};
+
+template<typename T>
+struct remove_cv<const T> {
+  using type = T;
+};
+
+template<typename T>
+struct remove_cv<volatile T> {
+  using type = T;
+};
+
+template<typename T>
+struct remove_cv<const volatile T> {
+  using type = T;
+};
+
+template<typename T>
+using remove_cv_t = typename remove_cv<T>::type;
+
+template<typename T>
+struct remove_cvref {
+  using type = remove_cv_t<remove_reference_t<T>>;
+};
+
+template<typename T>
+using remove_cvref_t = typename remove_cvref<T>::type;
 
 template<typename T, T Val>
 struct integral_constant {
@@ -146,6 +177,15 @@ constexpr inline bool is_same_v = is_same<T, U>::value;
 template<typename T, typename U>
 concept same_as = is_same_v<T, U>;
 
+template<typename T>
+struct is_void : public false_type {};
+
+template<>
+struct is_void<void> : public true_type {};
+
+template<typename T>
+constexpr inline bool is_void_v = is_void<T>::value;
+
 } // namespace meta
 
 template<typename T>
@@ -193,42 +233,6 @@ NTF_NODISCARD constexpr T* launder_as(void* ptr) noexcept {
   return launder(static_cast<T*>(ptr));
 }
 
-namespace meta {
-
-template<typename Fn, typename... Args>
-concept is_nothrow_invocable_v =
-  requires(Fn func, Args... args) { requires noexcept(func(forward<Args>(args)...)); };
-
-} // namespace meta
-
-template<typename Fn>
-class DeferFn {
-public:
-  template<typename Func>
-  constexpr DeferFn(Func&& func) : _func(forward<Func>(func)), _engaged(true) {}
-
-  constexpr ~DeferFn() noexcept {
-    if (_engaged) {
-      invoke();
-    }
-  }
-
-  NTF_NO_MOVE(DeferFn);
-  NTF_NO_COPY(DeferFn);
-
-public:
-  constexpr void invoke() noexcept {
-    static_assert(meta::is_nothrow_invocable_v<Fn>, "Fn has to be nothrow invocable with no args");
-    _func();
-  }
-
-  constexpr void disengage() noexcept { _engaged = false; }
-
-private:
-  Fn _func;
-  bool _engaged;
-};
-
 struct uninitialized_t {};
 
 constexpr inline uninitialized_t uninitialized;
@@ -242,6 +246,37 @@ struct in_place_type_t {};
 
 template<typename T>
 constexpr inline in_place_type_t<T> in_place_type;
+
+using nullptr_t = decltype(nullptr);
+
+class Exception {
+public:
+  Exception() noexcept = default;
+  virtual ~Exception() noexcept = default;
+  Exception(const Exception&) noexcept = default;
+  Exception& operator=(const Exception&) noexcept = default;
+  Exception(Exception&&) noexcept = default;
+  Exception& operator=(Exception&&) noexcept = default;
+
+public:
+  virtual const char* what() const noexcept = 0;
+};
+
+class BadAlloc final : public Exception {
+public:
+  const char* what() const noexcept override { return "BadAlloc"; }
+};
+
+class MsgException final : public Exception {
+public:
+  MsgException(const char* msg) noexcept : _msg(msg) {}
+
+public:
+  const char* what() const noexcept override { return _msg; }
+
+private:
+  const char* _msg;
+};
 
 } // namespace ntf
 

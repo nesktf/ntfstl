@@ -1,6 +1,7 @@
-#ifndef NTF_TRIV_FN_HPP_
-#define NTF_TRIV_FN_HPP_
+#ifndef NTF_FUNC_HPP_
+#define NTF_FUNC_HPP_
 
+#include <ntf/impl/erasure.hpp>
 #include <ntf/memory.hpp>
 
 namespace ntf {
@@ -220,4 +221,4 @@ private:
 
 } // namespace ntf
 
-#endif // NTF_TRIV_FN_HPP_
+#endif // NTF_FUNC_HPP_

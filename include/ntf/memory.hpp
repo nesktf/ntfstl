@@ -1,7 +1,22 @@
 #ifndef NTF_MEMORY_HPP_
 #define NTF_MEMORY_HPP_
 
-#include <ntf/core.hpp>
+#include <ntf/impl/concepts.hpp>
+#include <ntf/impl/core.hpp>
+
+extern "C" {
+
+NTF_DEFINE_HANDLE(ntf_Arena);
+
+size_t ntf_system_page_size() noexcept;
+int ntf_arena_init(ntf_Arena* arena, size_t capacity) noexcept;
+void ntf_arena_destroy(ntf_Arena* arena) noexcept;
+void ntf_arena_clear(ntf_Arena* arena) noexcept;
+void* ntf_arena_alloc(ntf_Arena* arena, size_t size, size_t align) noexcept;
+void* ntf_arena_realloc(ntf_Arena* arena, void* ptr, size_t newsz, size_t oldsz,
+                        size_t align) noexcept;
+
+} // extern "C"
 
 enum NTF_PNEW_T {
   NTF_PNEW_TAG,
@@ -13,22 +28,29 @@ constexpr inline void* operator new(size_t, void* ptr, NTF_PNEW_T) {
 
 constexpr inline void operator delete(void*, void*, NTF_PNEW_T) {}
 
-#define NTF_PNEW(_ptr) ::new (_ptr, NTF_PNEW_TAG)
+#define NTF_PNEW(_ptr) ::new (_ptr, ::NTF_PNEW_TAG)
 
 namespace ntf {
 
-constexpr inline u64 ArenaMinSize = 4 * 1024 * 1024; // 4MiB
+template<typename T, typename... Args>
+T* construct_at(T* ptr, Args&&... args) {
+  return NTF_PNEW(ptr) T(forward<Args>(args)...);
+}
 
-NTF_DEFINE_HANDLE(Arena);
+template<typename T, typename... Args>
+T* construct_offset(T* ptr, size_t i, Args&&... args) {
+  return NTF_PNEW(ptr + i) T(forward<Args>(args)...);
+}
 
-void* mem_alloc(size_t size) noexcept;
-void* mem_realloc(void* ptr, size_t newsz, size_t oldsz) noexcept;
-void mem_free(void* ptr) noexcept;
+template<typename T>
+void destroy_at(T* ptr) noexcept(meta::nothrow_destructible<T>) {
+  ptr->~T();
+}
 
-class bad_alloc : public exception {
-public:
-  virtual const char* what() const noexcept { return "bad_alloc"; }
-};
+template<typename T>
+void destroy_offset(T* ptr, size_t i) noexcept(meta::nothrow_destructible<T>) {
+  (ptr + i)->~T();
+}
 
 template<typename T>
 class DefaultAlloc {
@@ -51,15 +73,15 @@ public:
   constexpr DefaultAlloc(const rebind<U>&) noexcept {}
 
 public:
-  T* allocate(size_t n) {
-    T* ptr = static_cast<T*>(::ntf::mem_alloc(n * sizeof(T)));
-    NTF_THROW_IF(!ptr, bad_alloc());
+  constexpr T* allocate(size_t n) {
+    T* ptr = static_cast<T*>(::malloc(n * sizeof(T)));
+    NTF_THROW_IF(!ptr, BadAlloc());
     return ptr;
   }
 
-  void deallocate(T* ptr, size_t n) noexcept {
+  constexpr void deallocate(T* ptr, size_t n) noexcept {
     NTF_UNUSED(n);
-    ::ntf::mem_free(ptr);
+    ::free(ptr);
   }
 
 public:
@@ -72,15 +94,66 @@ public:
   }
 };
 
-int arena_init(Arena* arena, size_t capacity) noexcept;
-void arena_destroy(Arena* arena) noexcept;
-void arena_clear(Arena* arena) noexcept;
-void* arena_alloc(Arena* arena, size_t size, size_t align) noexcept;
-void* arena_realloc(Arena* arena, void* ptr, size_t newsz, size_t oldsz, size_t align) noexcept;
+static_assert(meta::allocator_of<DefaultAlloc<int>, int>);
 
 struct ArenaDelete {
-  void operator()(Arena* arena) noexcept { arena_destroy(arena); }
+  void operator()(ntf_Arena* arena) noexcept { ::ntf_arena_destroy(arena); }
 };
+
+template<typename T>
+class ArenaAlloc;
+
+class Arena {
+public:
+  template<typename T>
+  using bind_alloc = ArenaAlloc<T>;
+
+public:
+  constexpr Arena(ntf_Arena* arena) noexcept : _arena(arena) {}
+
+  constexpr Arena(Arena&& other) noexcept : _arena(other._arena) { other._arena = nullptr; }
+
+  constexpr ~Arena() noexcept { ::ntf_arena_destroy(_arena); }
+
+  constexpr Arena& operator=(Arena&& other) noexcept {
+    ::ntf_arena_destroy(_arena);
+
+    _arena = other._arena;
+    other._arena = nullptr;
+
+    return *this;
+  }
+
+  NTF_NO_COPY(Arena);
+
+public:
+  constexpr void* alloc(size_t size, size_t align) const {
+    void* ptr = ::ntf_arena_alloc(_arena, size, align);
+    NTF_THROW_IF(!ptr, BadAlloc());
+    return ptr;
+  }
+
+  constexpr void* realloc(void* ptr, size_t newsz, size_t oldsz, size_t align) const {
+    void* newptr = ::ntf_arena_realloc(_arena, ptr, newsz, oldsz, align);
+    NTF_THROW_IF(!ptr, BadAlloc());
+    return newptr;
+  }
+
+  constexpr void dealloc(void* ptr, size_t size) const noexcept {
+    NTF_UNUSED(ptr);
+    NTF_UNUSED(size);
+  }
+
+public:
+  constexpr ntf_Arena* arena() const noexcept { return _arena; }
+
+  constexpr operator ntf_Arena*() const noexcept { return _arena; }
+
+private:
+  ntf_Arena* _arena;
+};
+
+static_assert(meta::memory_resource<Arena>);
 
 template<typename T>
 class ArenaAlloc {
@@ -95,7 +168,9 @@ public:
   using rebind = ArenaAlloc<U>;
 
 public:
-  constexpr ArenaAlloc(Arena* arena) noexcept : _arena(arena) {}
+  constexpr ArenaAlloc(const Arena& arena) noexcept : _arena(arena.arena()) {}
+
+  constexpr ArenaAlloc(ntf_Arena* arena) noexcept : _arena(arena) {}
 
   constexpr ArenaAlloc(const ArenaAlloc&) noexcept = default;
 
@@ -104,19 +179,19 @@ public:
   constexpr ArenaAlloc(const rebind<U>& other) noexcept : _arena(other.arena()) {}
 
 public:
-  T* allocate(size_t n) {
-    T* ptr = static_cast<T*>(::ntf::arena_alloc(_arena, n * sizeof(T), alignof(T)));
-    NTF_THROW_IF(!ptr, bad_alloc());
+  constexpr T* allocate(size_t n) {
+    T* ptr = static_cast<T*>(::ntf_arena_alloc(_arena, n * sizeof(T), alignof(T)));
+    NTF_THROW_IF(!ptr, BadAlloc());
     return ptr;
   }
 
-  void deallocate(T* ptr, size_t n) noexcept {
+  constexpr void deallocate(T* ptr, size_t n) noexcept {
     NTF_UNUSED(ptr);
     NTF_UNUSED(n);
   }
 
 public:
-  constexpr Arena* arena() const { return _arena; }
+  constexpr ntf_Arena* arena() const { return _arena; }
 
 public:
   constexpr bool operator==(const ArenaAlloc& other) const noexcept {
@@ -130,8 +205,10 @@ public:
   }
 
 private:
-  Arena* _arena;
+  ntf_Arena* _arena;
 };
+
+static_assert(meta::allocator_of<ArenaAlloc<int>, int>);
 
 } // namespace ntf
 
