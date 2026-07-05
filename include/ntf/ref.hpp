@@ -1,16 +1,19 @@
 #ifndef NTF_REF_HPP_
 #define NTF_REF_HPP_
 
+#include <ntf/impl/erasure.hpp>
 #include <ntf/memory.hpp>
 
 namespace ntf {
 
 template<typename T>
-requires(!std::is_void_v<T> && !std::is_reference_v<T>)
 class Ref {
 public:
   using element_type = T;
-  using value_type = std::remove_cvref_t<T>;
+  using value_type = meta::remove_cvref_t<T>;
+
+  static_assert(!meta::is_void_v<T>, "T can't be void");
+  static_assert(!meta::is_reference_v<T>, "T can't be a reference");
 
   using pointer = T*;
   using const_pointer = const T*;
@@ -18,22 +21,22 @@ public:
   using const_reference = const T&;
 
 public:
-  constexpr Ref(reference obj) noexcept : _ptr(std::addressof(obj)) {}
+  constexpr Ref(reference obj) noexcept : _ptr(addressof(obj)) {}
 
   template<typename U>
-  requires(std::is_convertible_v<U*, T*>)
-  constexpr Ref(U& obj) noexcept : _ptr(std::addressof(obj)) {}
+  requires(meta::convertible_to<U*, T*>)
+  constexpr Ref(U& obj) noexcept : _ptr(addressof(obj)) {}
 
   constexpr explicit Ref(pointer ptr) : _ptr(ptr) { NTF_ASSERT(_ptr, "Assigning nullptr to Ref"); }
 
   template<typename U>
-  requires(std::is_convertible_v<U*, T*> && !std::same_as<U, T>)
+  requires(meta::convertible_to<U*, T*> && !meta::same_as<U, T>)
   constexpr Ref(U* ptr) : _ptr(ptr) {
     NTF_ASSERT(_ptr, "Assigning nullptr to Ref");
   }
 
   template<typename U>
-  requires(std::is_convertible_v<U*, T*>)
+  requires(meta::convertible_to<U*, T*>)
   constexpr Ref(const Ref<U>& other) noexcept : _ptr{other.data()} {}
 
   constexpr Ref(const Ref&) noexcept = default;
@@ -60,22 +63,22 @@ public:
   }
 
   template<typename U>
-  requires(std::is_convertible_v<U*, T*> && !std::same_as<U, T>)
+  requires(meta::convertible_to<U*, T*> && !meta::same_as<U, T>)
   constexpr Ref& operator=(U* ptr) {
-    NTF_THROW_IF(!ptr, std::runtime_error("Assigning nullptr to Ref"));
+    NTF_ASSERT(_ptr, "Assigning nullptr to Ref");
     _ptr = ptr;
     return *this;
   }
 
   template<typename U>
-  requires(std::is_convertible_v<U*, T*>)
+  requires(meta::convertible_to<U*, T*>)
   constexpr Ref& operator=(U& obj) noexcept {
-    _ptr = std::addressof(obj);
+    _ptr = addressof(obj);
     return *this;
   }
 
   template<typename U>
-  requires(std::is_convertible_v<U*, T*>)
+  requires(meta::convertible_to<U*, T*>)
   constexpr Ref& operator=(const Ref<U>& other) noexcept {
     _ptr = other.ptr();
     return *this;
@@ -103,14 +106,20 @@ public:
 public:
   explicit constexpr FnRef(Ret (*func_ptr)(Args...) noexcept(IsNoexcept)) :
       _func_obj_invoke(nullptr), _func_ptr_invoke(func_ptr) {
-    NTF_THROW_IF(!func_ptr, std::runtime_error("Assigning null function pointer to FnRef"));
+    NTF_ASSERT(func_ptr, "Assigning null function pointer to FnRef");
+  }
+
+  constexpr FnRef(const void* ptr, Ret (*func_ptr)(const void*, Args...) noexcept(IsNoexcept)) :
+      _func_obj_invoke(ptr), _func_ptr_invoke(func_ptr) {
+    NTF_ASSERT(func_ptr, "Assigning null function pointer to FnRef");
+    NTF_ASSERT(ptr, "Assigning nullptr to FnRef object");
   }
 
   template<typename T>
-  requires(std::is_invocable_r_v<Ret, T, Args...> && !std::is_same_v<FnRef, T>)
+  requires(meta::invocable_with_r<T, Ret, Args...> && !meta::is_same_v<FnRef, T>)
   constexpr FnRef(const T& callable) noexcept :
       _func_obj_invoke(&impl::ErasedInvoker<T, true, IsNoexcept, Ret, Args...>::invoke),
-      _obj_ptr(std::addressof(callable)) {}
+      _obj_ptr(addressof(callable)) {}
 
 public:
   constexpr ~FnRef() noexcept = default;
@@ -120,16 +129,16 @@ public:
 public:
   constexpr Ret operator()(Args... args) const noexcept(IsNoexcept) {
     if (_func_obj_invoke) {
-      if constexpr (std::is_void_v<Ret>) {
-        _func_obj_invoke(_obj_ptr, std::forward<Args>(args)...);
+      if constexpr (meta::is_void_v<Ret>) {
+        _func_obj_invoke(_obj_ptr, forward<Args>(args)...);
       } else {
-        return _func_obj_invoke(_obj_ptr, std::forward<Args>(args)...);
+        return _func_obj_invoke(_obj_ptr, forward<Args>(args)...);
       }
     } else {
-      if constexpr (std::is_void_v<Ret>) {
-        _func_ptr_invoke(std::forward<Args>(args)...);
+      if constexpr (meta::is_void_v<Ret>) {
+        _func_ptr_invoke(forward<Args>(args)...);
       } else {
-        return _func_ptr_invoke(std::forward<Args>(args)...);
+        return _func_ptr_invoke(forward<Args>(args)...);
       }
     }
   }
@@ -142,10 +151,10 @@ public:
   }
 
   template<typename T>
-  requires(std::is_invocable_r_v<Ret, T, Args...> && !std::is_same_v<FnRef, T>)
+  requires(meta::invocable_with_r<T, Ret, Args...> && !meta::is_same_v<FnRef, T>)
   constexpr FnRef& operator=(const T& callable) noexcept {
     _func_obj_invoke = &impl::ErasedInvoker<T, true, IsNoexcept, Ret, Args...>::invoke;
-    _obj_ptr = std::addressof(callable);
+    _obj_ptr = addressof(callable);
     return *this;
   }
 
@@ -180,10 +189,10 @@ public:
   }
 
   template<typename T>
-  requires(std::is_invocable_r_v<Ret, T, Args...> && !std::is_same_v<FnRef, T>)
+  requires(meta::invocable_with_r<T, Ret, Args...> && !meta::is_same_v<FnRef, T>)
   constexpr FnRef(T& callable) noexcept :
       _func_obj_invoke(&impl::ErasedInvoker<T, false, IsNoexcept, Ret, Args...>::invoke),
-      _obj_ptr(std::addressof(callable)) {}
+      _obj_ptr(addressof(callable)) {}
 
 public:
   constexpr ~FnRef() noexcept = default;
@@ -193,16 +202,16 @@ public:
 public:
   constexpr Ret operator()(Args... args) const noexcept(IsNoexcept) {
     if (_func_obj_invoke) {
-      if constexpr (std::is_void_v<Ret>) {
-        _func_obj_invoke(_obj_ptr, std::forward<Args>(args)...);
+      if constexpr (meta::is_void_v<Ret>) {
+        _func_obj_invoke(_obj_ptr, forward<Args>(args)...);
       } else {
-        return _func_obj_invoke(_obj_ptr, std::forward<Args>(args)...);
+        return _func_obj_invoke(_obj_ptr, forward<Args>(args)...);
       }
     } else {
-      if constexpr (std::is_void_v<Ret>) {
-        _func_ptr_invoke(std::forward<Args>(args)...);
+      if constexpr (meta::is_void_v<Ret>) {
+        _func_ptr_invoke(forward<Args>(args)...);
       } else {
-        return _func_ptr_invoke(std::forward<Args>(args)...);
+        return _func_ptr_invoke(forward<Args>(args)...);
       }
     }
   }
@@ -214,10 +223,10 @@ public:
   }
 
   template<typename T>
-  requires(std::is_invocable_r_v<Ret, T, Args...> && !std::is_same_v<FnRef, T>)
+  requires(meta::invocable_with_r<T, Ret, Args...> && !meta::is_same_v<FnRef, T>)
   constexpr FnRef& operator=(T& callable) noexcept {
     _func_obj_invoke = &impl::ErasedInvoker<T, false, IsNoexcept, Ret, Args...>::invoke;
-    _obj_ptr = std::addressof(callable);
+    _obj_ptr = addressof(callable);
     return *this;
   }
 

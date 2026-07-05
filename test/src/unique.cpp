@@ -1,5 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ntf/unique_array.hpp>
+#include <ntf/unique.hpp>
 
 namespace {
 
@@ -12,6 +12,8 @@ struct IntAlloc {
 public:
   using value_type = int;
   using size_type = size_t;
+  using pointer = int*;
+  using difference_type = ptrdiff_t;
 
 public:
   IntAlloc(IntArena& arena) : _arena{&arena} {}
@@ -34,16 +36,16 @@ private:
 } // namespace
 
 TEST_CASE("UniqueArray empty construction", "[UniqueArray]") {
-  ntf::UniqueArray<int, ntf::ArrayDelete<std::allocator<int>>> arr;
+  ntf::UniqueArray<int> arr;
   REQUIRE(arr.empty());
 
-  ntf::UniqueArray<int, ntf::ArrayDelete<std::allocator<int>>> arr_null = nullptr;
+  ntf::UniqueArray<int> arr_null = nullptr;
   REQUIRE(arr_null.empty());
 
   IntArena arena;
   IntAlloc alloc{arena};
-  ntf::ArrayDelete<IntAlloc> deleter{alloc};
-  ntf::UniqueArray<int, ntf::ArrayDelete<IntAlloc>> arr_alloc{deleter};
+  ntf::AllocDelete<IntAlloc> deleter{alloc};
+  ntf::UniqueArray<int, ntf::AllocDelete<IntAlloc>> arr_alloc{deleter};
   REQUIRE(arr_alloc.empty());
 }
 
@@ -52,8 +54,8 @@ TEST_CASE("UniqueArray construction and allocation", "[UniqueArray]") {
   const int copy = 10;
 
   SECTION("Construct from pointer") {
-    std::allocator<int> alloc;
-    ntf::ArrayDelete<std::allocator<int>> deleter{alloc};
+    ntf::DefaultAlloc<int> alloc;
+    ntf::AllocDelete<ntf::DefaultAlloc<int>> deleter{alloc};
 
     auto* ptr = alloc.allocate(count);
     for (size_t i = 0; i < count; ++i) {
@@ -82,7 +84,7 @@ TEST_CASE("UniqueArray construction and allocation", "[UniqueArray]") {
 
     IntArena arena;
     IntAlloc alloc{arena};
-    auto arr2 = ntf::make_unique_array<int>(count, alloc);
+    auto arr2 = ntf::make_unique_array<int>(ntf::alloc_arg, alloc, count);
     REQUIRE(!arr2.empty());
     REQUIRE(arr2.size() == count);
     for (const int n : arr1) {
@@ -104,7 +106,7 @@ TEST_CASE("UniqueArray construction and allocation", "[UniqueArray]") {
 
     IntArena arena;
     IntAlloc alloc{arena};
-    auto arr2 = ntf::make_unique_array<int>(count, copy, alloc);
+    auto arr2 = ntf::make_unique_array<int>(ntf::alloc_arg, alloc, count, copy);
     REQUIRE(!arr2.empty());
     REQUIRE(arr2.size() == count);
     for (const int n : arr1) {
@@ -123,7 +125,7 @@ TEST_CASE("UniqueArray construction and allocation", "[UniqueArray]") {
 
     IntArena arena;
     IntAlloc alloc{arena};
-    auto arr2 = ntf::make_unique_array<int>(ntf::uninitialized, count, alloc);
+    auto arr2 = ntf::make_unique_array<int>(ntf::alloc_arg, alloc, ntf::uninitialized, count);
     REQUIRE(!arr2.empty());
     REQUIRE(arr2.size() == count);
     arr2.reset();
@@ -153,7 +155,7 @@ TEST_CASE("UniqueArray move operations", "[UniqueArray]") {
     IntArena arena;
     IntAlloc alloc{arena};
 
-    auto arr = ntf::make_unique_array<int>(ntf::uninitialized, count, alloc);
+    auto arr = ntf::make_unique_array<int>(ntf::alloc_arg, alloc, ntf::uninitialized, count);
     REQUIRE(!arr.empty());
     REQUIRE(arr.size() == count);
 

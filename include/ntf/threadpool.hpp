@@ -1,7 +1,9 @@
-#pragma once
+#ifndef NTF_THREADPOOL_HPP_
+#define NTF_THREADPOOL_HPP_
 
-#include <ntf/core.hpp>
+#include <ntf/impl/core.hpp>
 
+// TODO: Remove stdlib here
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -76,3 +78,5 @@ public:
 };
 
 } // namespace ntf
+
+#endif // NTF_THREADPOOL_HPP_

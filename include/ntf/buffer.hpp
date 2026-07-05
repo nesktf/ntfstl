@@ -1,6 +1,7 @@
 #ifndef NTF_BUFFER_HPP_
 #define NTF_BUFFER_HPP_
 
+#include <ntf/impl/iterator.hpp>
 #include <ntf/memory.hpp>
 
 namespace ntf {
@@ -39,34 +40,34 @@ public:
 
   template<typename T>
   T* launder_as() {
-    return std::launder(as<T>());
+    return launder(as<T>());
   }
 
   template<typename T>
   const T* launder_as() const {
-    return std::launder(as<T>());
+    return launder(as<T>());
   }
 
   template<typename T>
   T* launder_as(size_type i) {
-    return std::launder(as<T>(i));
+    return launder(as<T>(i));
   }
 
   template<typename T>
   const T* launder_as(size_type i) const {
-    return std::launder(as<T>(i));
+    return launder(as<T>(i));
   }
 
 public:
   template<typename T, typename... Args>
-  T& construct(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
-    return *(NTF_PNEW(as<T>()) T(std::forward<Args>(args)...));
+  T& construct(Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) {
+    return *(NTF_PNEW(as<T>()) T(forward<Args>(args)...));
   }
 
   template<typename T, typename... Args>
   T& construct_offset(size_t offset,
-                      Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
-    return *(NTF_PNEW(as<T>() + offset) T(std::forward<Args>(args)...));
+                      Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) {
+    return *(NTF_PNEW(as<T>() + offset) T(forward<Args>(args)...));
   }
 
   template<typename T>
@@ -99,8 +100,8 @@ public:
 
 public:
   template<typename... Args>
-  T& construct(Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
-    return Base::template construct<T>(std::forward<Args>(args)...);
+  T& construct(Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) {
+    return Base::template construct<T>(forward<Args>(args)...);
   }
 
   void destroy() noexcept { Base::template destroy<T>(); }
@@ -140,16 +141,16 @@ public:
   using iterator = T*;
   using const_iterator = const T*;
 
-  using reverse_iterator = std::reverse_iterator<iterator>;
-  using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+  using reverse_iterator = impl::reverse_iter_wrap<iterator>;
+  using const_reverse_iterator = impl::reverse_iter_wrap<const_iterator>;
 
 public:
   constexpr TypeArrayBuf() noexcept = default;
 
 public:
   template<typename... Args>
-  T& construct(size_type i, Args&&... args) noexcept(std::is_nothrow_constructible_v<T, Args...>) {
-    return Base::template construct_offset<T>(i, std::forward<Args>(args)...);
+  T& construct(size_type i, Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) {
+    return Base::template construct_offset<T>(i, forward<Args>(args)...);
   }
 
   void destroy(size_type i) noexcept { Base::template destroy_offset<T>(i); }
@@ -171,14 +172,12 @@ public:
 
 public:
   T& at(size_type idx) {
-    NTF_THROW_IF(idx >= size(), std::out_of_range("Index out of range in TypeArrayBuf, was " +
-                                                  std::to_string(idx)));
+    NTF_THROW_IF(idx >= size(), MsgException("Index out of range in TypeArrayBuf"));
     return data()[idx];
   }
 
   const T& at(size_type idx) const {
-    NTF_THROW_IF(idx >= size(), std::out_of_range("Index out of range in TypeArrayBuf, was " +
-                                                  std::to_string(idx)));
+    NTF_THROW_IF(idx >= size(), MsgException("Index out of range in TypeArrayBuf"));
     return data()[idx];
   }
 

@@ -1,9 +1,8 @@
-#ifndef NTF_BUFSTR_HPP_
-#define NTF_BUFSTR_HPP_
+#ifndef NTF_STRING_HPP_
+#define NTF_STRING_HPP_
 
-#include <ntf/core.hpp>
-
-#include <iterator>
+#include <ntf/impl/core.hpp>
+#include <ntf/impl/iterator.hpp>
 
 namespace ntf {
 
@@ -11,7 +10,7 @@ namespace impl {
 
 template<typename Char>
 constexpr NTF_INLINE void memcpy_char(Char* dst, const Char* src, size_t n) {
-  if (std::is_constant_evaluated()) {
+  if (is_constant_evaluated()) {
     for (size_t i = 0; i < n; ++i) {
       dst[i] = src[i];
     }
@@ -22,7 +21,7 @@ constexpr NTF_INLINE void memcpy_char(Char* dst, const Char* src, size_t n) {
 
 template<typename Char>
 constexpr NTF_INLINE void memset_char(Char* dst, int val, size_t n) {
-  if (std::is_constant_evaluated()) {
+  if (is_constant_evaluated()) {
     for (size_t i = 0; i < n; ++i) {
       dst[i] = static_cast<Char>(val);
     }
@@ -46,8 +45,8 @@ public:
   using iterator = Char*;
   using const_iterator = const Char*;
 
-  using reverse_iterator = std::reverse_iterator<iterator>;
-  using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+  using reverse_iterator = impl::reverse_iter_wrap<iterator>;
+  using const_reverse_iterator = impl::reverse_iter_wrap<const_iterator>;
 
 private:
   static constexpr size_type _cap_len(size_type size) noexcept {
@@ -107,14 +106,12 @@ public:
 
 public:
   constexpr Char& at(size_type i) {
-    NTF_THROW_IF(i >= size(),
-                 std::out_of_range("Index out of range in StringBuf, was " + std::to_string(i)));
+    NTF_THROW_IF(i >= size(), MsgException("Index out of range in StringBuf"));
     return _data[i];
   }
 
   constexpr const Char& at(size_type i) const {
-    NTF_THROW_IF(i >= size(),
-                 std::out_of_range("Index out of range in StringBuf, was " + std::to_string(i)));
+    NTF_THROW_IF(i >= size(), MsgException("Index out of range in StringBuf"));
     return _data[i];
   }
 
@@ -184,4 +181,4 @@ StringBuf(const Char (&)[N]) -> StringBuf<N, Char>;
 
 } // namespace ntf
 
-#endif
+#endif // NTF_STRING_HPP_

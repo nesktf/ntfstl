@@ -63,30 +63,38 @@
 
 #define NTF_PANIC_1(_msg) ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__, _msg);
 #define NTF_PANIC_0()     NTF_PANIC_1("It's over");
-#define NTF_PANIC(...) NTF_APPLY_VA_ARGS(NTF_JOIN(NTF_PANIC_, NTF_NARG(__VA_ARGS__)), __VA_ARGS__)
+#define NTF_PANIC(...)    NTF_APPLY_VA_ARGS(NTF_JOIN(NTF_PANIC_, NTF_NARG(__VA_ARGS__)), __VA_ARGS__)
 
-#define NTF_TODO_1(_msg)                                                          \
-  do {                                                                            \
-    ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__, "TODO: " _msg); \
+#define NTF_TODO_1(_msg)                                                            \
+  do {                                                                              \
+    if (!::ntf::is_constant_evaluated()) {                                          \
+      ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__, "TODO: " _msg); \
+      NTF_UNREACHABLE();                                                            \
+    }                                                                               \
   } while (0)
-#define NTF_TODO_0()                                                       \
-  do {                                                                     \
-    ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__, "TODO"); \
+#define NTF_TODO_0()                                                         \
+  do {                                                                       \
+    if (!::ntf::is_constant_evaluated()) {                                   \
+      ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__, "TODO"); \
+      NTF_UNREACHABLE();                                                     \
+    }                                                                        \
   } while (0)
 #define NTF_TODO(...) NTF_APPLY_VA_ARGS(NTF_JOIN(NTF_TODO_, NTF_NARG(__VA_ARGS__)), __VA_ARGS__)
 
 #define NTF_ASSERT_2(_cond, _msg)                                                  \
   do {                                                                             \
-    if (NTF_UNLIKELY(!(_cond))) {                                                  \
+    if (!::ntf::is_constant_evaluated() && NTF_UNLIKELY(!(_cond))) {               \
       ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__,                \
                            "Assertion failure (" NTF_STRINGIFY(_cond) "): " _msg); \
+      NTF_UNREACHABLE();                                                           \
     }                                                                              \
   } while (0)
 #define NTF_ASSERT_1(_cond)                                                 \
   do {                                                                      \
-    if (NTF_UNLIKELY(!(_cond))) {                                           \
+    if (!::ntf::is_constant_evaluated() && NTF_UNLIKELY(!(_cond))) {        \
       ::ntf__panic_handler(__FILE__, __PRETTY_FUNCTION__, __LINE__,         \
                            "Assertion failure (" NTF_STRINGIFY(_cond) ")"); \
+      NTF_UNREACHABLE();                                                    \
     }                                                                       \
   } while (0)
 #define NTF_ASSERT(...) \

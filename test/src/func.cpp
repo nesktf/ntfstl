@@ -1,5 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
-#include <ntf/triv_fn.hpp>
+#include <ntf/func.hpp>
 
 namespace {
 
@@ -30,7 +30,7 @@ TEST_CASE("TrivFn construction", "[TrivFn]") {
     REQUIRE(f(8) == 16);
   }
   SECTION("Construct in place") {
-    ntf::TrivFn<int(int), 2 * sizeof(void*), 8> f{std::in_place_type<FunnyFn>, 2};
+    ntf::TrivFn<int(int), 2 * sizeof(void*), 8> f{ntf::in_place_type<FunnyFn>, 2};
     REQUIRE(f(2) == 4);
   }
 }

@@ -1,5 +1,5 @@
 #ifndef NTF_ERASURE_HPP_
-#define NTF_ERASURE_HPP
+#define NTF_ERASURE_HPP_
 
 #include <ntf/impl/core.hpp>
 
@@ -29,4 +29,4 @@ struct ErasedInvoker<T, true, IsNoexcept, Ret, Args...> {
 
 } // namespace ntf::impl
 
-#endif // NTF_ERASURE_HPP
+#endif // NTF_ERASURE_HPP_

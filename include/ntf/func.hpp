@@ -1,6 +1,7 @@
 #ifndef NTF_FUNC_HPP_
 #define NTF_FUNC_HPP_
 
+#include <ntf/impl/concepts.hpp>
 #include <ntf/impl/erasure.hpp>
 #include <ntf/memory.hpp>
 
@@ -17,30 +18,30 @@ class TrivFn<Ret(Args...) const noexcept(IsNoexcept), MaxSize, MaxAlign> {
 private:
   template<typename T>
   static constexpr bool is_valid_func =
-    std::is_invocable_r_v<Ret, T, Args...> && !std::is_same_v<TrivFn, T> &&
-    std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>;
+    meta::invocable_with_r<T, Ret, Args...> && !meta::is_same_v<TrivFn, T> &&
+    meta::trivially_copy_constructible<T> && meta::trivially_destructible<T>;
 
 public:
   TrivFn(Ret (*func_ptr)(Args...) noexcept(IsNoexcept)) :
       _func_ptr_invoke(func_ptr), _is_object(false) {
-    NTF_THROW_IF(!func_ptr, std::runtime_error("Assigning null function pointer to TrivFn"));
+    NTF_THROW_IF(!func_ptr, MsgException("Assigning null function pointer to TrivFn"));
   }
 
-  template<typename F>
-  requires(is_valid_func<std::remove_cvref_t<F>>)
-  TrivFn(F&& functor) noexcept :
+  template<typename Fn>
+  requires(is_valid_func<meta::remove_cvref_t<Fn>>)
+  TrivFn(Fn&& callable) noexcept :
       _func_obj_invoke(
-        &impl::ErasedInvoker<std::remove_cvref_t<F>, true, IsNoexcept, Ret, Args...>::invoke),
+        &impl::ErasedInvoker<meta::remove_cvref_t<Fn>, true, IsNoexcept, Ret, Args...>::invoke),
       _is_object(true) {
-    NTF_PNEW(_buffer) std::remove_cvref_t<F>(std::forward<F>(functor));
+    NTF_PNEW(_buffer) meta::remove_cvref_t<Fn>(::ntf::forward<Fn>(callable));
   }
 
-  template<typename F, typename... Args2>
-  requires(is_valid_func<F> && std::constructible_from<F, Args2...>)
-  TrivFn(std::in_place_type_t<F>, Args2&&... args) :
-      _func_obj_invoke(&impl::ErasedInvoker<F, true, IsNoexcept, Ret, Args...>::invoke),
+  template<typename Fn, typename... Args2>
+  requires(is_valid_func<Fn> && meta::constructible_from<Fn, Args2...>)
+  explicit TrivFn(in_place_type_t<Fn>, Args2&&... args) :
+      _func_obj_invoke(&impl::ErasedInvoker<Fn, true, IsNoexcept, Ret, Args...>::invoke),
       _is_object(true) {
-    NTF_PNEW(_buffer) F(std::forward<Args2>(args)...);
+    NTF_PNEW(_buffer) Fn(::ntf::forward<Args2>(args)...);
   }
 
 public:
@@ -51,42 +52,42 @@ public:
 public:
   Ret operator()(Args... args) const noexcept(IsNoexcept) {
     if (_is_object) {
-      if constexpr (std::is_void_v<Ret>) {
-        _func_obj_invoke(_buffer, std::forward<Args>(args)...);
+      if constexpr (meta::is_void_v<Ret>) {
+        _func_obj_invoke(_buffer, ::ntf::forward<Args>(args)...);
       } else {
-        return _func_obj_invoke(_buffer, std::forward<Args>(args)...);
+        return _func_obj_invoke(_buffer, ::ntf::forward<Args>(args)...);
       }
     } else {
-      if constexpr (std::is_void_v<Ret>) {
-        _func_ptr_invoke(std::forward<Args>(args)...);
+      if constexpr (meta::is_void_v<Ret>) {
+        _func_ptr_invoke(::ntf::forward<Args>(args)...);
       } else {
-        return _func_ptr_invoke(std::forward<Args>(args)...);
+        return _func_ptr_invoke(::ntf::forward<Args>(args)...);
       }
     }
   }
 
 public:
-  template<typename F>
-  requires(is_valid_func<std::remove_cvref_t<F>>)
-  TrivFn& emplace(F&& functor) noexcept {
+  template<typename Fn>
+  requires(is_valid_func<meta::remove_cvref_t<Fn>>)
+  TrivFn& emplace(Fn&& callable) noexcept {
     _func_obj_invoke =
-      &impl::ErasedInvoker<std::remove_cvref_t<F>, true, IsNoexcept, Ret, Args...>::invoke;
+      &impl::ErasedInvoker<meta::remove_cvref_t<Fn>, true, IsNoexcept, Ret, Args...>::invoke;
     _is_object = true;
-    NTF_PNEW(_buffer) std::remove_cvref_t<F>(std::forward<F>(functor));
+    NTF_PNEW(_buffer) meta::remove_cvref_t<Fn>(::ntf::forward<Fn>(callable));
     return *this;
   }
 
-  template<typename F, typename... Args2>
-  requires(is_valid_func<F> && std::constructible_from<F, Args2...>)
-  TrivFn& emplace(std::in_place_type_t<F>, Args2&&... args) noexcept {
-    _func_obj_invoke = &impl::ErasedInvoker<F, true, IsNoexcept, Ret, Args...>::invoke;
+  template<typename Fn, typename... Args2>
+  requires(is_valid_func<Fn> && meta::constructible_from<Fn, Args2...>)
+  TrivFn& emplace(in_place_type_t<Fn>, Args2&&... args) noexcept {
+    _func_obj_invoke = &impl::ErasedInvoker<Fn, true, IsNoexcept, Ret, Args...>::invoke;
     _is_object = true;
-    NTF_PNEW(_buffer) F(std::forward<Args2>(args)...);
+    NTF_PNEW(_buffer) Fn(::ntf::forward<Args2>(args)...);
     return *this;
   }
 
   TrivFn& emplace(Ret (*func_ptr)(Args...) noexcept(IsNoexcept)) {
-    NTF_THROW_IF(!func_ptr, std::runtime_error("Assigning null function pointer to TrivFn"));
+    NTF_THROW_IF(!func_ptr, MsgException("Assigning null function pointer to TrivFn"));
     _func_ptr_invoke = func_ptr;
     _is_object = false;
     return *this;
@@ -98,8 +99,8 @@ public:
 
   template<typename F>
   requires(is_valid_func<F>)
-  TrivFn& operator=(F&& functor) noexcept {
-    return emplace(std::forward<F>(functor));
+  TrivFn& operator=(F&& callable) noexcept {
+    return emplace(::ntf::forward<F>(callable));
   }
 
   TrivFn& operator==(Ret (*func_ptr)(Args...) noexcept(IsNoexcept)) { return emplace(func_ptr); }
@@ -121,30 +122,30 @@ class TrivFn<Ret(Args...) noexcept(IsNoexcept), MaxSize, MaxAlign> {
 private:
   template<typename T>
   static constexpr bool is_valid_func =
-    std::is_invocable_r_v<Ret, T, Args...> && !std::is_same_v<TrivFn, T> &&
-    std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>;
+    meta::invocable_with_r<T, Ret, Args...> && !meta::is_same_v<TrivFn, T> &&
+    meta::trivially_copy_constructible<T> && meta::trivially_destructible<T>;
 
 public:
   explicit TrivFn(Ret (*func_ptr)(Args...) noexcept(IsNoexcept)) :
       _func_ptr_invoke(func_ptr), _is_object(false) {
-    NTF_THROW_IF(!func_ptr, std::runtime_error("Assigning null function pointer to TrivFn"));
+    NTF_THROW_IF(!func_ptr, MsgException("Assigning null function pointer to TrivFn"));
   }
 
-  template<typename F>
-  requires(is_valid_func<std::remove_cvref_t<F>>)
-  TrivFn(F&& functor) noexcept :
+  template<typename Fn>
+  requires(is_valid_func<meta::remove_cvref_t<Fn>>)
+  TrivFn(Fn&& callable) noexcept :
       _func_obj_invoke(
-        &impl::ErasedInvoker<std::remove_cvref_t<F>, false, IsNoexcept, Ret, Args...>::invoke),
+        &impl::ErasedInvoker<meta::remove_cvref_t<Fn>, false, IsNoexcept, Ret, Args...>::invoke),
       _is_object(true) {
-    NTF_PNEW(_buffer) std::remove_cvref_t<F>(std::forward<F>(functor));
+    NTF_PNEW(_buffer) meta::remove_cvref_t<Fn>(::ntf::forward<Fn>(callable));
   }
 
-  template<typename F, typename... Args2>
-  requires(is_valid_func<F> && std::constructible_from<F, Args2...>)
-  TrivFn(std::in_place_type_t<F>, Args2&&... args) :
-      _func_obj_invoke(&impl::ErasedInvoker<F, false, IsNoexcept, Ret, Args...>::invoke),
+  template<typename Fn, typename... Args2>
+  requires(is_valid_func<Fn> && meta::constructible_from<Fn, Args2...>)
+  explicit TrivFn(in_place_type_t<Fn>, Args2&&... args) :
+      _func_obj_invoke(&impl::ErasedInvoker<Fn, false, IsNoexcept, Ret, Args...>::invoke),
       _is_object(true) {
-    NTF_PNEW(_buffer) F(std::forward<Args2>(args)...);
+    NTF_PNEW(_buffer) Fn(::ntf::forward<Args2>(args)...);
   }
 
 public:
@@ -155,42 +156,42 @@ public:
 public:
   constexpr Ret operator()(Args... args) noexcept(IsNoexcept) {
     if (_is_object) {
-      if constexpr (std::is_void_v<Ret>) {
-        _func_obj_invoke(_buffer, std::forward<Args>(args)...);
+      if constexpr (meta::is_void_v<Ret>) {
+        _func_obj_invoke(_buffer, ::ntf::forward<Args>(args)...);
       } else {
-        return _func_obj_invoke(_buffer, std::forward<Args>(args)...);
+        return _func_obj_invoke(_buffer, ::ntf::forward<Args>(args)...);
       }
     } else {
-      if constexpr (std::is_void_v<Ret>) {
-        _func_ptr_invoke(std::forward<Args>(args)...);
+      if constexpr (meta::is_void_v<Ret>) {
+        _func_ptr_invoke(::ntf::forward<Args>(args)...);
       } else {
-        return _func_ptr_invoke(std::forward<Args>(args)...);
+        return _func_ptr_invoke(::ntf::forward<Args>(args)...);
       }
     }
   }
 
 public:
-  template<typename F>
-  requires(is_valid_func<std::remove_cvref_t<F>>)
-  TrivFn& emplace(F&& functor) noexcept {
+  template<typename Fn>
+  requires(is_valid_func<meta::remove_cvref_t<Fn>>)
+  TrivFn& emplace(Fn&& callable) noexcept {
     _func_obj_invoke =
-      &impl::ErasedInvoker<std::remove_cvref_t<F>, false, IsNoexcept, Ret, Args...>::invoke;
+      &impl::ErasedInvoker<meta::remove_cvref_t<Fn>, false, IsNoexcept, Ret, Args...>::invoke;
     _is_object = true;
-    NTF_PNEW(_buffer) std::remove_cvref_t<F>(std::forward<F>(functor));
+    NTF_PNEW(_buffer) meta::remove_cvref_t<Fn>(::ntf::forward<Fn>(callable));
     return *this;
   }
 
-  template<typename F, typename... Args2>
-  requires(is_valid_func<F> && std::constructible_from<F, Args2...>)
-  TrivFn& emplace(std::in_place_type_t<F>, Args2&&... args) noexcept {
-    _func_obj_invoke = &impl::ErasedInvoker<F, false, IsNoexcept, Ret, Args...>::invoke;
+  template<typename Fn, typename... Args2>
+  requires(is_valid_func<Fn> && meta::constructible_from<Fn, Args2...>)
+  TrivFn& emplace(in_place_type_t<Fn>, Args2&&... args) noexcept {
+    _func_obj_invoke = &impl::ErasedInvoker<Fn, false, IsNoexcept, Ret, Args...>::invoke;
     _is_object = true;
-    NTF_PNEW(_buffer) F(std::forward<Args2>(args)...);
+    NTF_PNEW(_buffer) Fn(::ntf::forward<Args2>(args)...);
     return *this;
   }
 
   TrivFn& emplace(Ret (*func_ptr)(Args...) noexcept(IsNoexcept)) {
-    NTF_THROW_IF(!func_ptr, std::runtime_error("Assigning null function pointer to TrivFn"));
+    NTF_THROW_IF(!func_ptr, MsgException("Assigning null function pointer to TrivFn"));
     _func_ptr_invoke = func_ptr;
     _is_object = false;
     return *this;
@@ -202,8 +203,8 @@ public:
 
   template<typename F>
   requires(is_valid_func<F>)
-  TrivFn& operator=(F&& functor) noexcept {
-    return emplace(std::forward<F>(functor));
+  TrivFn& operator=(F&& callable) noexcept {
+    return emplace(::ntf::forward<F>(callable));
   }
 
   TrivFn& operator==(Ret (*func_ptr)(Args...) noexcept(IsNoexcept)) { return emplace(func_ptr); }

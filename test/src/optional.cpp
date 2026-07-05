@@ -61,22 +61,22 @@ TEST_CASE("optional construction", "[optional]") {
   }
 
   SECTION("inplace construction") {
-    ntf::Optional<int> opt_basic{std::in_place, 1};
+    ntf::Optional<int> opt_basic{ntf::in_place, 1};
     REQUIRE(opt_basic.has_value());
     REQUIRE(*opt_basic == 1);
 
-    ntf::Optional<void*> opt_ptr{std::in_place, some_address};
+    ntf::Optional<void*> opt_ptr{ntf::in_place, some_address};
     REQUIRE(opt_ptr.has_value());
     REQUIRE(*opt_ptr == some_address);
 
-    ntf::Optional<void*> opt_ptr_null{std::in_place, nullptr};
+    ntf::Optional<void*> opt_ptr_null{ntf::in_place, nullptr};
     REQUIRE(opt_ptr_null.has_value());
 
-    ntf::Optional<NullableThing> opt_custom{std::in_place, 1};
+    ntf::Optional<NullableThing> opt_custom{ntf::in_place, 1};
     REQUIRE(opt_custom.has_value());
     REQUIRE((*opt_custom).value == 1);
 
-    ntf::Optional<NullableThing> opt_custom_null{std::in_place, 0};
+    ntf::Optional<NullableThing> opt_custom_null{ntf::in_place, 0};
     REQUIRE(opt_custom_null.has_value());
   }
 }
@@ -126,31 +126,31 @@ TEST_CASE("optional copy operations", "[optional]") {
 TEST_CASE("optional move operations", "[optional]") {
   SECTION("move construction null") {
     ntf::Optional<int> opt_basic;
-    auto opt_basic_copy = std::move(opt_basic);
+    auto opt_basic_copy = ntf::move(opt_basic);
     REQUIRE(!opt_basic_copy.has_value());
     REQUIRE(!opt_basic.has_value());
 
     ntf::Optional<void*> opt_ptr;
-    auto opt_ptr_copy = std::move(opt_ptr);
+    auto opt_ptr_copy = ntf::move(opt_ptr);
     REQUIRE(!opt_ptr_copy.has_value());
     REQUIRE(!opt_ptr.has_value());
 
     ntf::Optional<NullableThing> opt_custom;
-    auto opt_custom_copy = std::move(opt_custom);
+    auto opt_custom_copy = ntf::move(opt_custom);
     REQUIRE(!opt_custom_copy.has_value());
     REQUIRE(!opt_custom.has_value());
   }
   SECTION("move construction normal") {
     ntf::Optional<int> opt_basic{1};
-    auto opt_basic_copy = std::move(opt_basic);
+    auto opt_basic_copy = ntf::move(opt_basic);
     REQUIRE(opt_basic_copy.has_value());
 
     ntf::Optional<void*> opt_ptr{some_address};
-    auto opt_ptr_copy = std::move(opt_ptr);
+    auto opt_ptr_copy = ntf::move(opt_ptr);
     REQUIRE(opt_ptr_copy.has_value());
 
     ntf::Optional<NullableThing> opt_custom{NullableThing{1}};
-    auto opt_custom_copy = std::move(opt_custom);
+    auto opt_custom_copy = ntf::move(opt_custom);
     REQUIRE(opt_custom_copy.has_value());
   }
 }
@@ -161,25 +161,25 @@ static ntf::Optional<int> parse_string(std::string_view str) {
   if (ret.ptr != str.end()) {
     return {ntf::nullopt};
   }
-  return {std::in_place, out};
+  return {ntf::in_place, out};
 }
 
 TEST_CASE("optional monadic operations", "[optional]") {
   SECTION("and_then") {
     auto lvalue = parse_string("4");
     auto lvalue_ret =
-      lvalue.and_then([](int value) -> ntf::Optional<int> { return {std::in_place, value * 3}; });
+      lvalue.and_then([](int value) -> ntf::Optional<int> { return {ntf::in_place, value * 3}; });
     REQUIRE(lvalue_ret.has_value());
     REQUIRE(*lvalue_ret == 12);
 
     const auto const_lvalue = parse_string("8");
     auto const_lvalue_ret = const_lvalue.and_then(
-      [](int value) -> ntf::Optional<int> { return {std::in_place, value * 4}; });
+      [](int value) -> ntf::Optional<int> { return {ntf::in_place, value * 4}; });
     REQUIRE(const_lvalue.has_value());
     REQUIRE(*const_lvalue_ret == 32);
 
     auto rvalue_ret = parse_string("2").and_then(
-      [](int value) -> ntf::Optional<int> { return {std::in_place, value * 2}; });
+      [](int value) -> ntf::Optional<int> { return {ntf::in_place, value * 2}; });
     REQUIRE(rvalue_ret.has_value());
     REQUIRE(*rvalue_ret == 4);
   }
@@ -202,12 +202,12 @@ TEST_CASE("optional monadic operations", "[optional]") {
 
   SECTION("or_else") {
     auto lvalue = parse_string("u");
-    auto lvalue_ret = lvalue.or_else([]() -> ntf::Optional<int> { return {std::in_place, 2}; });
+    auto lvalue_ret = lvalue.or_else([]() -> ntf::Optional<int> { return {ntf::in_place, 2}; });
     REQUIRE(lvalue_ret.has_value());
     REQUIRE(*lvalue_ret == 2);
 
     auto rvalue_ret =
-      parse_string("i").or_else([]() -> ntf::Optional<int> { return {std::in_place, 4}; });
+      parse_string("i").or_else([]() -> ntf::Optional<int> { return {ntf::in_place, 4}; });
     REQUIRE(rvalue_ret.has_value());
     REQUIRE(*rvalue_ret == 4);
   }
