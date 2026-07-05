@@ -61,13 +61,13 @@ public:
 public:
   template<typename T, typename... Args>
   T& construct(Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) {
-    return *(NTF_PNEW(as<T>()) T(forward<Args>(args)...));
+    return *(NTF_PNEW(as<T>()) T(::ntf::forward<Args>(args)...));
   }
 
   template<typename T, typename... Args>
   T& construct_offset(size_t offset,
                       Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) {
-    return *(NTF_PNEW(as<T>() + offset) T(forward<Args>(args)...));
+    return *(NTF_PNEW(as<T>() + offset) T(::ntf::forward<Args>(args)...));
   }
 
   template<typename T>
@@ -101,7 +101,7 @@ public:
 public:
   template<typename... Args>
   T& construct(Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) {
-    return Base::template construct<T>(forward<Args>(args)...);
+    return Base::template construct<T>(::ntf::forward<Args>(args)...);
   }
 
   void destroy() noexcept { Base::template destroy<T>(); }
@@ -150,7 +150,7 @@ public:
 public:
   template<typename... Args>
   T& construct(size_type i, Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) {
-    return Base::template construct_offset<T>(i, forward<Args>(args)...);
+    return Base::template construct_offset<T>(i, ::ntf::forward<Args>(args)...);
   }
 
   void destroy(size_type i) noexcept { Base::template destroy_offset<T>(i); }

@@ -34,7 +34,7 @@ public:
       : _count(other._count), _empty_head(other._empty_head) {
     memcpy(_slots, other._slots, sizeof(_slots));
     other.for_each([this](value_type& elem, element_slot slot) {
-      NTF_PNEW(reinterpret_cast<T*>(_slots[slot].elem)) T(move(elem));
+      NTF_PNEW(reinterpret_cast<T*>(_slots[slot].elem)) T(::ntf::move(elem));
     });
   }
 
@@ -69,18 +69,18 @@ public:
 public:
   element_slot insert(const value_type& elem) { return _do_insert(elem); }
 
-  element_slot insert(value_type&& elem) { return _do_insert(move(elem)); }
+  element_slot insert(value_type&& elem) { return _do_insert(::ntf::move(elem)); }
 
   template<typename... Args>
   element_slot emplace(Args&&... args) {
-    return _do_insert(forward<Args>(args)...);
+    return _do_insert(::ntf::forward<Args>(args)...);
   }
 
-  void remove(element_slot slot) {
+  void re::ntf::move(element_slot slot) {
     if (!has_element(slot)) {
       return;
     }
-    _do_remove(slot);
+    _do_re::ntf::move(slot);
   }
 
 private:
@@ -98,14 +98,14 @@ private:
       _empty_head = slot.next;
     }
 
-    new (reinterpret_cast<T*>(slot.elem)) T(forward<Args>(args)...);
+    new (reinterpret_cast<T*>(slot.elem)) T(::ntf::forward<Args>(args)...);
     slot.next = ELEM_ACTIVE;
 
     ++_count;
     return pos;
   }
 
-  void _do_remove(element_slot pos) {
+  void _do_re::ntf::move(element_slot pos) {
     auto& slot = _slots[pos];
     NTF_ASSERT(slot.next == ELEM_ACTIVE);
     if constexpr (!meta::trivially_destructible<T>) {

@@ -9,7 +9,7 @@ template<typename To, typename From>
 concept convertible_to = requires(From obj) { static_cast<To>(obj); };
 
 template<typename T, typename... Args>
-concept constructible_from = requires(Args... args) { T(forward<Args>(args)...); };
+concept constructible_from = requires(Args... args) { T(::ntf::forward<Args>(args)...); };
 
 template<typename T>
 concept default_constructible = requires() { T(); };
@@ -19,16 +19,16 @@ concept nothrow_default_constructible = requires() { requires noexcept(T()); };
 
 template<typename T, typename... Args>
 concept nothrow_constructible =
-  requires(Args... args) { requires noexcept(T(forward<Args>(args)...)); };
+  requires(Args... args) { requires noexcept(T(::ntf::forward<Args>(args)...)); };
 
 template<typename T>
-concept nothrow_move_constructible = requires(T&& obj) { requires noexcept(T(move(obj))); };
+concept nothrow_move_constructible = requires(T&& obj) { requires noexcept(T(::ntf::move(obj))); };
 
 template<typename T>
-concept move_constructible = requires(T& obj) { T(move(obj)); };
+concept move_constructible = requires(T& obj) { T(::ntf::move(obj)); };
 
 template<typename T>
-concept nothrow_move_assignable = requires(T&& obj) { requires noexcept(obj = move(obj)); };
+concept nothrow_move_assignable = requires(T&& obj) { requires noexcept(obj = ::ntf::move(obj)); };
 
 template<typename T>
 concept copy_constructible = requires(const T& obj) { T(obj); };
@@ -43,7 +43,7 @@ concept nothrow_copy_constructible = requires(const T& obj) { requires noexcept(
 
 template<typename T>
 concept nothrow_copy_assignable =
-  requires(T& obj, const T& other) { requires noexcept(obj = move(other)); };
+  requires(T& obj, const T& other) { requires noexcept(obj = ::ntf::move(other)); };
 
 template<typename T>
 concept nothrow_destructible = requires(T obj) { requires noexcept(obj.~T()); };
@@ -140,21 +140,21 @@ template<typename T>
 concept trivially_constructible = is_trivially_constructible_v<T>;
 
 template<typename Fn, typename... Args>
-concept invocable_with = requires(Fn func, Args... args) { func(forward<Args>(args)...); };
+concept invocable_with = requires(Fn func, Args... args) { func(::ntf::forward<Args>(args)...); };
 
 template<typename Fn, typename... Args>
 concept nothrow_invocable_with =
-  requires(Fn func, Args... args) { requires noexcept(func(forward<Args>(args)...)); };
+  requires(Fn func, Args... args) { requires noexcept(func(::ntf::forward<Args>(args)...)); };
 
 template<typename Fn, typename Ret, typename... Args>
 concept invocable_with_r = requires(Fn func, Args... args) {
-  { func(forward<Args>(args)...) } -> same_as<Ret>;
+  { func(::ntf::forward<Args>(args)...) } -> same_as<Ret>;
 };
 
 template<typename Fn, typename Ret, typename... Args>
 concept nothrow_invocable_with_r = requires(Fn func, Args... args) {
-  { func(forward<Args>(args)...) } -> same_as<Ret>;
-  requires noexcept(func(forward<Args>(args)...));
+  { func(::ntf::forward<Args>(args)...) } -> same_as<Ret>;
+  requires noexcept(func(::ntf::forward<Args>(args)...));
 };
 
 template<typename Fn, typename... Args>

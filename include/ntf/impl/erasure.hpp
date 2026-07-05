@@ -9,9 +9,9 @@ template<typename T, bool IsConst, bool IsNoexcept, typename Ret, typename... Ar
 struct ErasedInvoker {
   static constexpr Ret invoke(void* ptr, Args... args) noexcept(IsNoexcept) {
     if constexpr (meta::is_void_v<Ret>) {
-      (*launder(static_cast<T*>(ptr)))(forward<Args>(args)...);
+      (*launder(static_cast<T*>(ptr)))(::ntf::forward<Args>(args)...);
     } else {
-      return (*launder(static_cast<T*>(ptr)))(forward<Args>(args)...);
+      return (*launder(static_cast<T*>(ptr)))(::ntf::forward<Args>(args)...);
     }
   }
 };
@@ -20,9 +20,9 @@ template<typename T, bool IsNoexcept, typename Ret, typename... Args>
 struct ErasedInvoker<T, true, IsNoexcept, Ret, Args...> {
   static constexpr Ret invoke(const void* ptr, Args... args) noexcept(IsNoexcept) {
     if constexpr (meta::is_void_v<Ret>) {
-      (*launder(static_cast<const T*>(ptr)))(forward<Args>(args)...);
+      (*launder(static_cast<const T*>(ptr)))(::ntf::forward<Args>(args)...);
     } else {
-      return (*launder(static_cast<const T*>(ptr)))(forward<Args>(args)...);
+      return (*launder(static_cast<const T*>(ptr)))(::ntf::forward<Args>(args)...);
     }
   }
 };

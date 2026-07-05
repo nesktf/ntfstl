@@ -55,7 +55,7 @@ public:
   constexpr OptionalData(nullopt_t) noexcept : _dummy{}, _active{false} {}
 
   constexpr OptionalData(T&& obj) noexcept(meta::nothrow_move_constructible<T>) :
-      _value(move(obj)), _active{true} {}
+      _value(::ntf::move(obj)), _active{true} {}
 
   constexpr OptionalData(const T& obj) noexcept(meta::nothrow_copy_constructible<T>) :
       _value(obj), _active{true} {}
@@ -63,13 +63,13 @@ public:
   template<typename... Args>
   constexpr OptionalData(in_place_t,
                          Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) :
-      _value(forward<Args>(args)...), _active{true} {}
+      _value(::ntf::forward<Args>(args)...), _active{true} {}
 
 #if 0
   template<typename U, typename... Args>
   constexpr OptionalData(in_place_t, std::initializer_list<U> il, Args&&... args) noexcept(
     meta::nothrow_constructible<T, std::initializer_list<U>, Args...>) :
-      _value(il, forward<Args>(args)...), _active{true} {}
+      _value(il, ::ntf::forward<Args>(args)...), _active{true} {}
 #endif
 
   constexpr ~OptionalData()
@@ -103,7 +103,7 @@ public:
   requires(!meta::trivially_move_constructible<T>)
       : _dummy(), _active{other.has_value()} {
     if (_active) {
-      construct(move(other.get_value()));
+      construct(::ntf::move(other.get_value()));
     }
   }
 
@@ -114,7 +114,7 @@ public:
   template<typename U>
   constexpr OptionalData(OptionalData<U>&& other) noexcept(meta::nothrow_constructible<T, U&&>)
   requires(!meta::same_as<U, meta::remove_cv_t<T>> && meta::convertible_to<U &&, T>)
-      : _value(move(other.get_value())), _active{true} {}
+      : _value(::ntf::move(other.get_value())), _active{true} {}
 
 public:
   constexpr OptionalData& operator=(const OptionalData&) noexcept
@@ -155,7 +155,7 @@ public:
     auto do_thing = [&, this]() {
       _active = other.has_value();
       if (_active) {
-        _value = move(other.get_value());
+        _value = ::ntf::move(other.get_value());
       }
     };
 
@@ -194,7 +194,7 @@ protected:
 
   template<typename... Args>
   constexpr void construct(Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) {
-    NTF_PNEW(addressof(_value)) T(forward<Args>(args)...);
+    NTF_PNEW(::ntf::addressof(_value)) T(::ntf::forward<Args>(args)...);
     _active = true;
   }
 
@@ -202,7 +202,7 @@ protected:
   template<typename U, typename... Args>
   constexpr void construct(std::initializer_list<U> il,
                            Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) {
-    NTF_PNEW(addressof(_value)) T(il, forward<Args>(args)...);
+    NTF_PNEW(::ntf::addressof(_value)) T(il, ::ntf::forward<Args>(args)...);
     _active = true;
   }
 #endif
@@ -233,7 +233,7 @@ public:
 
   constexpr T&& value() && {
     NTF_THROW_IF(!base_t::has_value(), BadOptionalAccess());
-    return move(base_t::get_value());
+    return ::ntf::move(base_t::get_value());
   }
 
   constexpr const T& value() const& {
@@ -243,26 +243,27 @@ public:
 
   constexpr const T&& value() const&& {
     NTF_THROW_IF(!base_t::has_value(), BadOptionalAccess());
-    return move(base_t::get_value());
+    return ::ntf::move(base_t::get_value());
   }
 
   template<typename U = meta::remove_cv_t<T>>
   constexpr T value_or(U&& def_value) const&
   requires(meta::copy_constructible<T> && meta::convertible_to<U &&, T>)
   {
-    return has_value() ? base_t::get_value() : static_cast<T>(forward<U>(def_value));
+    return has_value() ? base_t::get_value() : static_cast<T>(::ntf::forward<U>(def_value));
   }
 
   template<typename U = meta::remove_cv_t<T>>
     constexpr T value_or(U&& def_value) &&
     requires(meta::move_constructible<T>&& meta::convertible_to<U&&, T>) {
-      return has_value() ? move(base_t::get_value()) : static_cast<T>(forward<U>(def_value));
+      return has_value() ? ::ntf::move(base_t::get_value())
+                         : static_cast<T>(::ntf::forward<U>(def_value));
     }
 
     template<typename... Args>
     constexpr T& emplace(Args&&... args) noexcept(meta::nothrow_constructible<T, Args...>) {
     base_t::destroy();
-    base_t::construct(forward<Args>(args)...);
+    base_t::construct(::ntf::forward<Args>(args)...);
     return base_t::get_value();
   }
 
@@ -271,7 +272,7 @@ public:
   constexpr T& emplace(std::initializer_list<U> il, Args&&... args) noexcept(
     meta::nothrow_constructible<T, std::initializer_list<U>, Args...>) {
     base_t::destroy();
-    base_t::construct(il, forward<Args>(args)...);
+    base_t::construct(il, ::ntf::forward<Args>(args)...);
     return base_t::get_value();
   }
 #endif
@@ -298,7 +299,7 @@ public:
 
   constexpr T&& operator*() && {
     NTF_ASSERT(base_t::has_value());
-    return move(base_t::get_value());
+    return ::ntf::move(base_t::get_value());
   }
 
   constexpr const T& operator*() const& {
@@ -308,17 +309,17 @@ public:
 
   constexpr const T&& operator*() const&& {
     NTF_ASSERT(base_t::has_value());
-    return move(base_t::get_value());
+    return ::ntf::move(base_t::get_value());
   }
 
   constexpr T* operator->() {
     NTF_ASSERT(base_t::has_value());
-    return addressof(base_t::get_value());
+    return ::ntf::addressof(base_t::get_value());
   }
 
   constexpr const T* operator->() const {
     NTF_ASSERT(base_t::has_value());
-    return addressof(base_t::get_value());
+    return ::ntf::addressof(base_t::get_value());
   }
 
 public:
@@ -328,7 +329,7 @@ public:
     static_assert(meta::optional_type<U>, "F needs to return an optional");
     static_assert(!meta::is_void_v<U>, "Fn can't return void");
     if (has_value()) {
-      return forward<Fn>(func)(base_t::get_value());
+      return ::ntf::forward<Fn>(func)(base_t::get_value());
     } else {
       return U{nullopt};
     }
@@ -336,11 +337,12 @@ public:
 
   template<typename Fn>
   constexpr auto and_then(Fn&& func) && {
-    using U = meta::remove_cvref_t<meta::invoke_result_t<Fn, decltype(move(base_t::get_value()))>>;
+    using U =
+      meta::remove_cvref_t<meta::invoke_result_t<Fn, decltype(::ntf::move(base_t::get_value()))>>;
     static_assert(meta::optional_type<U>, "F needs to return an optional");
     static_assert(!meta::is_void_v<U>, "Fn can't return void");
     if (has_value()) {
-      return forward<Fn>(func)(move(base_t::get_value()));
+      return ::ntf::forward<Fn>(func)(::ntf::move(base_t::get_value()));
     } else {
       return U{nullopt};
     }
@@ -352,7 +354,7 @@ public:
     static_assert(meta::optional_type<U>, "F needs to return an optional");
     static_assert(!meta::is_void_v<U>, "Fn can't return void");
     if (has_value()) {
-      return forward<F>(func)(base_t::get_value());
+      return ::ntf::forward<F>(func)(base_t::get_value());
     } else {
       return U{nullopt};
     }
@@ -360,11 +362,12 @@ public:
 
   template<typename Fn>
   constexpr auto and_then(Fn&& func) const&& {
-    using U = meta::remove_cvref_t<meta::invoke_result_t<Fn, decltype(move(base_t::get_value()))>>;
+    using U =
+      meta::remove_cvref_t<meta::invoke_result_t<Fn, decltype(::ntf::move(base_t::get_value()))>>;
     static_assert(meta::optional_type<U>, "F needs to return an optional");
     static_assert(!meta::is_void_v<U>, "Fn can't return void");
     if (has_value()) {
-      return forward<Fn>(func)(move(base_t::get_value()));
+      return ::ntf::forward<Fn>(func)(::ntf::move(base_t::get_value()));
     } else {
       return U{nullopt};
     }
@@ -376,7 +379,7 @@ public:
     static_assert(!meta::is_reference_v<U>, "Fn can't return a reference type");
     static_assert(!meta::is_void_v<U>, "Fn can't return void");
     if (has_value()) {
-      return Optional<U>{in_place, forward<Fn>(func)(base_t::get_value())};
+      return Optional<U>{in_place, ::ntf::forward<Fn>(func)(base_t::get_value())};
     } else {
       return Optional<U>{nullopt};
     }
@@ -384,11 +387,12 @@ public:
 
   template<typename Fn>
   constexpr auto transform(Fn&& func) && {
-    using U = meta::remove_cv_t<meta::invoke_result_t<Fn, decltype(move(base_t::get_value()))>>;
+    using U =
+      meta::remove_cv_t<meta::invoke_result_t<Fn, decltype(::ntf::move(base_t::get_value()))>>;
     static_assert(!meta::is_reference_v<U>, "Fn can't return a reference type");
     static_assert(!meta::is_void_v<U>, "Fn can't return void");
     if (has_value()) {
-      return Optional<U>{in_place, forward<Fn>(func)(move(base_t::get_value()))};
+      return Optional<U>{in_place, ::ntf::forward<Fn>(func)(::ntf::move(base_t::get_value()))};
     } else {
       return Optional<U>{nullopt};
     }
@@ -400,7 +404,7 @@ public:
     static_assert(!meta::is_reference_v<U>, "Fn can't return a reference type");
     static_assert(!meta::is_void_v<U>, "Fn can't return void");
     if (has_value()) {
-      return Optional<U>{in_place, forward<Fn>(func)(base_t::get_value())};
+      return Optional<U>{in_place, ::ntf::forward<Fn>(func)(base_t::get_value())};
     } else {
       return Optional<U>{nullopt};
     }
@@ -408,11 +412,12 @@ public:
 
   template<typename Fn>
   constexpr auto transform(Fn&& func) const&& {
-    using U = meta::remove_cv_t<meta::invoke_result_t<Fn, decltype(move(base_t::get_value()))>>;
+    using U =
+      meta::remove_cv_t<meta::invoke_result_t<Fn, decltype(::ntf::move(base_t::get_value()))>>;
     static_assert(!meta::is_reference_v<U>, "Fn can't return a reference type");
     static_assert(!meta::is_void_v<U>, "Fn can't return void");
     if (has_value()) {
-      return Optional<U>{in_place, forward<Fn>(func)(move(base_t::get_value()))};
+      return Optional<U>{in_place, ::ntf::forward<Fn>(func)(::ntf::move(base_t::get_value()))};
     } else {
       return Optional<U>{nullopt};
     }
@@ -422,14 +427,14 @@ public:
   constexpr Optional or_else(Fn&& func) const& {
     using U = meta::remove_cvref_t<meta::invoke_result_t<Fn>>;
     static_assert(meta::same_as<U, Optional>, "F needs to return the same optional type");
-    return has_value() ? *this : forward<Fn>(func)();
+    return has_value() ? *this : ::ntf::forward<Fn>(func)();
   }
 
   template<typename Fn>
   constexpr Optional or_else(Fn&& func) && {
     using U = meta::remove_cvref_t<meta::invoke_result_t<Fn>>;
     static_assert(meta::same_as<U, Optional>, "F needs to return the same optional type");
-    return has_value() ? move(*this) : forward<Fn>(func)();
+    return has_value() ? ::ntf::move(*this) : ::ntf::forward<Fn>(func)();
   }
 };
 

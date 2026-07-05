@@ -36,12 +36,12 @@ constexpr inline alloc_arg_t alloc_arg;
 
 template<typename T, typename... Args>
 T* construct_at(T* ptr, Args&&... args) {
-  return NTF_PNEW(ptr) T(forward<Args>(args)...);
+  return NTF_PNEW(ptr) T(::ntf::forward<Args>(args)...);
 }
 
 template<typename T, typename... Args>
 T* construct_offset(T* ptr, size_t i, Args&&... args) {
-  return NTF_PNEW(ptr + i) T(forward<Args>(args)...);
+  return NTF_PNEW(ptr + i) T(::ntf::forward<Args>(args)...);
 }
 
 template<typename T>

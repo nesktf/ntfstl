@@ -66,7 +66,7 @@ public:
 
   constexpr explicit Span(reference obj) noexcept
   requires(extent == 1u || extent == dynamic_extent)
-      : impl::SpanExtent<Extent>{1u}, _data{addressof(obj)} {}
+      : impl::SpanExtent<Extent>{1u}, _data{::ntf::addressof(obj)} {}
 
   template<typename It>
   explicit(extent != dynamic_extent) constexpr Span(It first, size_type count)

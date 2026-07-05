@@ -17,7 +17,7 @@ template<typename Fn>
 class DeferFn {
 public:
   template<typename Func>
-  constexpr DeferFn(Func&& func) : _func(forward<Func>(func)), _engaged(true) {}
+  constexpr DeferFn(Func&& func) : _func(::ntf::forward<Func>(func)), _engaged(true) {}
 
   constexpr ~DeferFn() noexcept {
     if (_engaged) {
@@ -49,12 +49,13 @@ template<auto Func, auto... Binds, typename... Params>
 constexpr auto bind_front(Params&&... params) {
   if constexpr (sizeof...(params) == 0) {
     return []<typename... InnerParam>(InnerParam&&... ps) {
-      return Func(Binds..., forward<InnerParam>(ps)...);
+      return Func(Binds..., ::ntf::forward<InnerParam>(ps)...);
     };
   } else {
-    return [... params = forward<Params>(params)]<typename... InnerParam>(InnerParam&&... ps) {
-      return Func(Binds..., params..., forward<InnerParam>(ps)...);
-    };
+    return
+      [... params = ::ntf::forward<Params>(params)]<typename... InnerParam>(InnerParam&&... ps) {
+        return Func(Binds..., params..., ::ntf::forward<InnerParam>(ps)...);
+      };
   }
 }
 
@@ -63,13 +64,14 @@ template<auto Func, auto... Binds, typename... Params>
 constexpr auto bind_back(Params&&... params) {
   if constexpr (sizeof...(params) == 0) {
     return []<typename... InnerParam>(InnerParam&&... ps) {
-      return Func(forward<InnerParam>(ps)..., Binds...);
+      return Func(::ntf::forward<InnerParam>(ps)..., Binds...);
     };
 
   } else {
-    return [... params = forward<Params>(params)]<typename... InnerParam>(InnerParam&&... ps) {
-      return Func(forward<InnerParam>(ps)..., params..., Binds...);
-    };
+    return
+      [... params = ::ntf::forward<Params>(params)]<typename... InnerParam>(InnerParam&&... ps) {
+        return Func(::ntf::forward<InnerParam>(ps)..., params..., Binds...);
+      };
   }
 }
 

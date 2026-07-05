@@ -192,7 +192,7 @@ auto make_unique(alloc_arg_t, Alloc&& alloc, Args&&... args)
 #ifdef __cpp_exceptions
   try {
 #endif
-    ptr = NTF_PNEW(ptr) T(forward<Args>(args)...);
+    ptr = NTF_PNEW(ptr) T(::ntf::forward<Args>(args)...);
 #ifdef __cpp_exceptions
   } catch (...) {
     alloc.deallocate(ptr, 1);
@@ -206,13 +206,13 @@ template<typename T, meta::mem_arg<T> Mem, typename... Args>
 requires(meta::constructible_from<T, Args...>)
 auto make_unique(alloc_arg_t, Mem&& mem, Args&&... args) {
   using Alloc = typename meta::remove_cvref_t<Mem>::template bind_alloc<T>;
-  return make_unique<T>(alloc_arg, Alloc(mem), forward<Args>(args)...);
+  return make_unique<T>(alloc_arg, Alloc(mem), ::ntf::forward<Args>(args)...);
 }
 
 template<typename T, typename... Args>
 requires(meta::constructible_from<T, Args...>)
 UniquePtr<T> make_unique(Args&&... args) {
-  return make_unique<T>(alloc_arg, DefaultAlloc<T>{}, forward<Args>(args)...);
+  return make_unique<T>(alloc_arg, DefaultAlloc<T>{}, ::ntf::forward<Args>(args)...);
 }
 
 template<typename T, typename Deleter = DefaultDelete<T>>
