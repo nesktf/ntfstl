@@ -4,10 +4,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifndef linux
-#error "memory.cpp defined for linux only"
-#endif
-
 #include <sys/mman.h>
 #include <unistd.h>
 

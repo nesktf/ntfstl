@@ -420,17 +420,17 @@ public:
     static_assert(meta::nothrow_destructible<T>, "T has to be nothrow destructible");
     if constexpr (_triv_destr_val && !_triv_destr_err) {
       if (!_valid) {
-        ::ntf::addressof(_error)->~E();
+        ::ntf::destroy_at(::ntf::addressof(_error));
       }
     } else if constexpr (!_triv_destr_val && _triv_destr_err) {
       if (_valid) {
-        ::ntf::addressof(_error)->~E();
+        ::ntf::destroy_at(::ntf::addressof(_value));
       }
     } else {
       if (_valid) {
-        ::ntf::addressof(_error)->~E();
+        ::ntf::destroy_at(::ntf::addressof(_value));
       } else {
-        ::ntf::addressof(_error)->~E();
+        ::ntf::destroy_at(::ntf::addressof(_error));
       }
     }
   }

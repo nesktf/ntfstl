@@ -3,6 +3,8 @@
 
 #include <ntf/memory.hpp>
 
+#include <string.h>
+
 namespace ntf {
 
 using FreelistSlot = u32;
