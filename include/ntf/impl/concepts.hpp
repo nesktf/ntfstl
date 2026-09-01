@@ -49,67 +49,13 @@ template<typename T>
 concept nothrow_destructible = requires(T obj) { requires noexcept(obj.~T()); };
 
 template<typename T>
-struct is_trivially_destructible :
-    public bool_constant<
-#if defined(__has_builtin)
-#if __has_builtin(__is_trivially_destructible)
-      __is_trivially_destructible(T)
-#elif __has_builtin(__has_trivial_destructor)
-      __has_trivial_destructor(T)
-#endif
-#endif
-      > {
-};
-
-template<typename T>
-constexpr inline bool is_trivially_destructible_v = is_trivially_destructible<T>::value;
-
-template<typename T>
 concept trivially_destructible = is_trivially_destructible_v<T>;
-
-template<typename T, bool = is_referenceable<T>::value>
-struct is_trivially_copy_constructible_impl :
-    public bool_constant<
-#if defined(__has_builtin)
-#if __has_builtin(__is_trivially_constructible)
-      __is_trivially_copyable(T)
-#elif __has_builtin(__has_trivial_copy)
-      __has_trivial_copy(T)
-#endif
-#endif
-      > {
-};
-
-template<typename T>
-struct is_trivially_copy_constructible_impl<T, false> : public false_type {};
-
-template<typename T>
-struct is_trivially_copy_constructible : public is_trivially_copy_constructible_impl<T> {};
-
-template<typename T>
-constexpr inline bool is_trivially_copy_constructible_v =
-  is_trivially_copy_constructible<T>::value;
 
 template<typename T>
 concept trivially_copy_constructible = is_trivially_copy_constructible_v<T>;
 
 template<typename T>
-struct is_trivially_move_constructible :
-    public bool_constant<__is_trivially_constructible(T, T&&)> {};
-
-template<typename T>
-constexpr inline bool is_trivially_move_constructible_v =
-  is_trivially_move_constructible<T>::value;
-
-template<typename T>
 concept trivially_move_constructible = is_trivially_move_constructible_v<T>;
-
-template<typename T>
-struct is_trivially_copy_asignable :
-    public bool_constant<__is_trivially_assignable(T&, const T&)> {};
-
-template<typename T>
-constexpr inline bool is_trivially_copy_assignable_v = is_trivially_copy_asignable<T>::value;
 
 template<typename T>
 concept trivially_copy_assignable = is_trivially_copy_assignable_v<T>;
@@ -118,20 +64,7 @@ template<typename T>
 concept trivially_copyable = trivially_copy_constructible<T> && trivially_copy_assignable<T>;
 
 template<typename T>
-struct is_trivially_move_asignable : public bool_constant<__is_trivially_assignable(T&, T&&)> {};
-
-template<typename T>
-constexpr inline bool is_trivially_move_assignable_v = is_trivially_move_asignable<T>::value;
-
-template<typename T>
 concept trivially_move_assignable = is_trivially_move_assignable_v<T>;
-
-template<typename T, typename... Args>
-struct is_trivially_constructible :
-    public bool_constant<__is_trivially_constructible(T, Args...)> {};
-
-template<typename T, typename... Args>
-constexpr inline bool is_trivially_constructible_v = is_trivially_constructible<T, Args...>::value;
 
 template<typename T, typename... Args>
 concept trivially_constructible_with = is_trivially_constructible_v<T, Args...>;

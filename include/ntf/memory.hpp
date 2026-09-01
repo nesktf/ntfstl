@@ -15,18 +15,6 @@ void* ntf_arena_alloc(ntf_Arena arena, size_t size, size_t align) noexcept;
 
 } // extern "C"
 
-enum NTF_PNEW_T {
-  NTF_PNEW_TAG,
-};
-
-constexpr inline void* operator new(size_t, void* ptr, NTF_PNEW_T) {
-  return ptr;
-}
-
-constexpr inline void operator delete(void*, void*, NTF_PNEW_T) {}
-
-#define NTF_PNEW(_ptr) ::new (_ptr, ::NTF_PNEW_TAG)
-
 namespace ntf {
 
 struct alloc_arg_t {};

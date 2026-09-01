@@ -3,32 +3,27 @@
 
 #include <ntf/impl/macro.h>
 
+#ifndef NTF_NO_STD
+#include <exception>
+#include <memory>
+#include <new>
+#include <type_traits>
+#define NTF_PNEW(_ptr) ::new (_ptr)
+#else
+enum NTF_PNEW_T {
+  NTF_PNEW_TAG,
+};
+
+constexpr inline void* operator new(size_t, void* ptr, NTF_PNEW_T) {
+  return ptr;
+}
+
+constexpr inline void operator delete(void*, void*, NTF_PNEW_T) {}
+
+#define NTF_PNEW(_ptr) ::new (_ptr, ::NTF_PNEW_TAG)
+#endif
+
 namespace ntf {
-
-namespace numdefs {
-
-using size_t = ::size_t;
-using ptrdiff_t = ::ptrdiff_t;
-using uintptr_t = ::uintptr_t;
-
-using u8 = ::uint8_t;
-using u16 = ::uint16_t;
-using u32 = ::uint32_t;
-using u64 = ::uint64_t;
-using i8 = ::int8_t;
-using i16 = ::int16_t;
-using i32 = ::int32_t;
-using i64 = ::int64_t;
-
-using f32 = float;
-static_assert(sizeof(f32) == 4);
-
-using f64 = double;
-static_assert(sizeof(f64) == 8);
-
-} // namespace numdefs
-
-using namespace numdefs;
 
 namespace meta {
 
@@ -283,7 +278,7 @@ struct add_pointer_impl {
 
 template<typename T>
 struct add_pointer_impl<T, true> {
-  using type = remove_reference<T>::type*;
+  using type = typename remove_reference<T>::type*;
 };
 
 template<typename T>
@@ -299,7 +294,7 @@ struct decay_impl<T, false, false> {
 
 template<typename T>
 struct decay_impl<T, true, false> {
-  using type = remove_extent<T>::type*;
+  using type = typename remove_extent<T>::type*;
 };
 
 template<typename T>
@@ -322,7 +317,7 @@ template<typename T> // T = void
 auto try_add_lvalue_ref(...) -> type_identity_t<T>;
 
 template<typename T>
-struct add_lvalue_reference : public decltype(try_add_rvalue_ref<T>(0)) {};
+struct add_lvalue_reference : public decltype(try_add_lvalue_ref<T>(0)) {};
 
 template<typename T>
 using add_lvalue_reference_t = typename add_lvalue_reference<T>::type;
@@ -377,6 +372,7 @@ constexpr const T& min(const T& a, const T& b) {
   return a < b ? a : b;
 }
 
+#ifdef NTF_NO_STD
 template<typename T>
 NTF_NODISCARD constexpr T* launder(T* ptr) noexcept {
 #if defined(__has_builtin) && __has_builtin(__builtin_launder)
@@ -384,11 +380,6 @@ NTF_NODISCARD constexpr T* launder(T* ptr) noexcept {
 #else
   return ptr;
 #endif
-}
-
-template<typename T>
-NTF_NODISCARD constexpr T* launder_as(void* ptr) noexcept {
-  return launder(static_cast<T*>(ptr));
 }
 
 template<typename T>
@@ -403,26 +394,6 @@ NTF_NODISCARD constexpr T* addressof(T& thing) noexcept {
 template<typename T>
 const T* addressof(const T&&) = delete;
 
-template<typename T>
-NTF_NODISCARD constexpr const T* as_const(T* p) noexcept {
-  return p;
-}
-
-template<typename T>
-NTF_NODISCARD constexpr const T* as_const(const T* p) noexcept {
-  return p;
-}
-
-template<typename T>
-NTF_NODISCARD constexpr const T& as_const(T& p) noexcept {
-  return p;
-}
-
-template<typename T>
-NTF_NODISCARD constexpr const T& as_const(const T& p) noexcept {
-  return p;
-}
-
 constexpr inline bool is_constant_evaluated() noexcept {
 #if defined(__has_builtin) && __has_builtin(__builtin_is_constant_evaluated)
   return __builtin_is_constant_evaluated();
@@ -431,10 +402,6 @@ constexpr inline bool is_constant_evaluated() noexcept {
   return false;
 #endif
 }
-
-struct uninitialized_t {};
-
-constexpr inline uninitialized_t uninitialized;
 
 struct in_place_t {};
 
@@ -465,6 +432,149 @@ class BadAlloc final : public Exception {
 public:
   const char* what() const noexcept override { return "BadAlloc"; }
 };
+
+template<typename T>
+struct is_trivially_destructible :
+    public bool_constant<
+#if defined(__has_builtin)
+#if __has_builtin(__is_trivially_destructible)
+      __is_trivially_destructible(T)
+#elif __has_builtin(__has_trivial_destructor)
+      __has_trivial_destructor(T)
+#endif
+#endif
+      > {
+};
+
+template<typename T, bool = is_referenceable<T>::value>
+struct is_trivially_copy_constructible_impl :
+    public bool_constant<
+#if defined(__has_builtin)
+#if __has_builtin(__is_trivially_constructible)
+      __is_trivially_copyable(T)
+#elif __has_builtin(__has_trivial_copy)
+      __has_trivial_copy(T)
+#endif
+#endif
+      > {
+};
+
+template<typename T>
+struct is_trivially_copy_constructible_impl<T, false> : public false_type {};
+
+template<typename T>
+struct is_trivially_copy_constructible : public is_trivially_copy_constructible_impl<T> {};
+
+template<typename T>
+struct is_trivially_move_constructible :
+    public bool_constant<__is_trivially_constructible(T, T&&)> {};
+
+template<typename T>
+struct is_trivially_copy_assignable :
+    public bool_constant<__is_trivially_assignable(T&, const T&)> {};
+
+template<typename T>
+struct is_trivially_move_assignable : public bool_constant<__is_trivially_assignable(T&, T&&)> {};
+
+template<typename T, typename... Args>
+struct is_trivially_constructible :
+    public bool_constant<__is_trivially_constructible(T, Args...)> {};
+
+#else
+using std::is_trivially_constructible;
+using std::is_trivially_copy_assignable;
+using std::is_trivially_copy_constructible;
+using std::is_trivially_destructible;
+using std::is_trivially_move_assignable;
+using std::is_trivially_move_constructible;
+
+using std::addressof;
+using std::is_constant_evaluated;
+using std::launder;
+
+using std::in_place;
+using std::in_place_t;
+using std::in_place_type;
+using std::in_place_type_t;
+using std::nullptr_t;
+
+using Exception = std::exception;
+using BadAlloc = std::bad_alloc;
+#endif
+
+template<typename T>
+constexpr inline bool is_trivially_destructible_v = is_trivially_destructible<T>::value;
+
+template<typename T>
+constexpr inline bool is_trivially_copy_constructible_v =
+  is_trivially_copy_constructible<T>::value;
+
+template<typename T>
+constexpr inline bool is_trivially_move_constructible_v =
+  is_trivially_move_constructible<T>::value;
+
+template<typename T>
+constexpr inline bool is_trivially_copy_assignable_v = is_trivially_copy_assignable<T>::value;
+
+template<typename T>
+constexpr inline bool is_trivially_move_assignable_v = is_trivially_move_assignable<T>::value;
+
+template<typename T, typename... Args>
+constexpr inline bool is_trivially_constructible_v = is_trivially_constructible<T, Args...>::value;
+
+template<typename T>
+NTF_NODISCARD constexpr T* launder_as(void* ptr) noexcept {
+  return launder(static_cast<T*>(ptr));
+}
+
+template<typename T>
+NTF_NODISCARD constexpr const T* as_const(T* p) noexcept {
+  return p;
+}
+
+template<typename T>
+NTF_NODISCARD constexpr const T* as_const(const T* p) noexcept {
+  return p;
+}
+
+template<typename T>
+NTF_NODISCARD constexpr const T& as_const(T& p) noexcept {
+  return p;
+}
+
+template<typename T>
+NTF_NODISCARD constexpr const T& as_const(const T& p) noexcept {
+  return p;
+}
+
+namespace numdefs {
+
+using size_t = ::size_t;
+using ptrdiff_t = ::ptrdiff_t;
+using uintptr_t = ::uintptr_t;
+
+using u8 = ::uint8_t;
+using u16 = ::uint16_t;
+using u32 = ::uint32_t;
+using u64 = ::uint64_t;
+using i8 = ::int8_t;
+using i16 = ::int16_t;
+using i32 = ::int32_t;
+using i64 = ::int64_t;
+
+using f32 = float;
+static_assert(sizeof(f32) == 4);
+
+using f64 = double;
+static_assert(sizeof(f64) == 8);
+
+} // namespace numdefs
+
+using namespace numdefs;
+
+struct uninitialized_t {};
+
+constexpr inline uninitialized_t uninitialized;
 
 class MsgException final : public Exception {
 public:
