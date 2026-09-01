@@ -23,7 +23,7 @@ concept nullable_type = !meta::same_as<T, in_place_t> && !meta::same_as<T, nullo
 
 } // namespace meta
 
-template<meta::nullable_type T>
+template<typename T>
 class Optional;
 
 template<typename T>
@@ -217,9 +217,10 @@ private:
 };
 } // namespace impl
 
-template<meta::nullable_type T>
+template<typename T>
 class Optional : public impl::OptionalData<T> {
 private:
+  static_assert(meta::nullable_type<T>, "Non nullable type used");
   using base_t = impl::OptionalData<T>;
 
 public:

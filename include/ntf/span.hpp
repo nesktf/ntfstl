@@ -87,7 +87,7 @@ public:
            (extent == dynamic_extent || extent == N))
       : impl::SpanExtent<Extent>{N}, _data(arr) {}
 
-#if 0
+#ifndef NTF_NO_STD
   template<typename U, size_t N>
   constexpr Span(std::array<U, N>& arr) noexcept
   requires(std::is_convertible_v<std::remove_pointer_t<decltype(std::data(arr))> (*)[],
