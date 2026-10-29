@@ -55,7 +55,7 @@ public:
     static_assert(meta::nothrow_destructible<value_type>, "Can't delete throwing type");
     if constexpr (!meta::trivially_destructible<value_type>) {
       for (size_type i = 0; i < n; ++i) {
-        destroy_offset(ptr, n);
+        destroy_offset(ptr, i);
       }
     }
     Alloc::deallocate(ptr, n);
