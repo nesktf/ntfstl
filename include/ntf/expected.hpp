@@ -356,8 +356,8 @@ public:
 
 public:
   constexpr ExpectedStorage&
-  operator=(ExpectedStorage& other) noexcept(meta::nothrow_move_constructible<T> &&
-                                             meta::nothrow_move_constructible<E>)
+  operator=(ExpectedStorage&& other) noexcept(meta::nothrow_move_constructible<T> &&
+                                              meta::nothrow_move_constructible<E>)
   requires(meta::move_constructible<T> && meta::move_constructible<E>)
   {
     if (::ntf::addressof(other) == this) {
