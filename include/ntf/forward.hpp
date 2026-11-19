@@ -83,7 +83,13 @@ template<size_t N, typename Char>
 class StringBuf;
 
 template<typename T, size_t N>
-class InplaceVec;
+class InlineVec;
+
+template<typename T, typename Alloc = DefaultAlloc<T>>
+class Vec;
+
+template<typename T, size_t SmallSz, typename Alloc = DefaultAlloc<T>>
+class SmallVec;
 
 class ThreadPool;
 

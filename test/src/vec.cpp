@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_templated.hpp>
 
+#include <ntf/span.hpp>
 #include <ntf/vec.hpp>
 
 #include <vector>
@@ -436,4 +437,261 @@ TEST_CASE("SmallVec custom allocator and propagation", "[vec/SmallVec]") {
     CHECK(large_sized.size() == 10);
     CHECK(count_stats.allocations == 1);
   }
+}
+
+TEST_CASE("Vec construction and basic operations", "[vec/Vec]") {
+  SECTION("Default constructor") {
+    Vec<int> vec;
+    REQUIRE(vec.empty());
+    REQUIRE(vec.size() == 0);
+    REQUIRE(vec.capacity() == 0);
+    REQUIRE(vec.data() == nullptr);
+  }
+
+  SECTION("Sized constructor with default value") {
+    Vec<int> vec(5);
+    REQUIRE(vec.size() == 5);
+    REQUIRE(vec.capacity() >= 5);
+    for (size_t i = 0; i < vec.size(); ++i) {
+      CHECK(vec[i] == 0);
+    }
+  }
+
+  SECTION("Sized constructor with custom value") {
+    Vec<int> vec(4, 42);
+    REQUIRE(vec.size() == 4);
+    REQUIRE(vec.capacity() >= 4);
+    for (int x : vec) {
+      CHECK(x == 42);
+    }
+  }
+
+#ifndef NTF_NO_STD
+  SECTION("initializer_list constructor") {
+    Vec<int> vec{1, 2, 3, 4, 5};
+    REQUIRE(vec.size() == 5);
+    REQUIRE_THAT(vec, EqualsRange(std::to_array<int>({1, 2, 3, 4, 5})));
+  }
+
+  SECTION("Iterator constructor") {
+    std::vector<int> src{10, 20, 30};
+    Vec<int> vec(src.begin(), src.end());
+    REQUIRE(vec.size() == 3);
+    REQUIRE_THAT(vec, EqualsRange(src));
+  }
+#endif
+
+  SECTION("Copy constructor and assignment") {
+    Vec<int> a;
+    a.push_back(1);
+    a.push_back(2);
+    a.push_back(3);
+
+    Vec<int> b(a);
+    REQUIRE(b.size() == 3);
+    CHECK(b[0] == 1);
+    CHECK(b[1] == 2);
+    CHECK(b[2] == 3);
+
+    Vec<int> c;
+    c = b;
+    REQUIRE(c.size() == 3);
+    CHECK(c[0] == 1);
+    CHECK(c[1] == 2);
+    CHECK(c[2] == 3);
+  }
+
+  SECTION("Move constructor and assignment") {
+    Vec<int> a;
+    a.push_back(10);
+    a.push_back(20);
+
+    Vec<int> b(std::move(a));
+    REQUIRE(b.size() == 2);
+    CHECK(b[0] == 10);
+    CHECK(b[1] == 20);
+    CHECK(a.empty());
+    CHECK(a.capacity() == 0);
+
+    Vec<int> c;
+    c = std::move(b);
+    REQUIRE(c.size() == 2);
+    CHECK(c[0] == 10);
+    CHECK(c[1] == 20);
+    CHECK(b.empty());
+    CHECK(b.capacity() == 0);
+  }
+}
+
+TEST_CASE("Vec element access and iteration", "[vec/Vec]") {
+  Vec<int> vec;
+  for (int i = 0; i < 5; ++i) {
+    vec.push_back(i * 10);
+  }
+
+  CHECK(vec.front() == 0);
+  CHECK(vec.back() == 40);
+  CHECK(vec[2] == 20);
+
+  const auto& const_vec = vec;
+  CHECK(const_vec.front() == 0);
+  CHECK(const_vec.back() == 40);
+  CHECK(const_vec[2] == 20);
+
+  int sum = 0;
+  for (int x : vec) {
+    sum += x;
+  }
+  CHECK(sum == 100);
+
+  int rsum = 0;
+  for (auto it = vec.rbegin(); it != vec.rend(); ++it) {
+    rsum += *it;
+  }
+  CHECK(rsum == 100);
+}
+
+TEST_CASE("Vec modifiers and capacity", "[vec/Vec]") {
+  Vec<int> vec;
+
+  SECTION("reserve and shrink_to_fit") {
+    vec.reserve(100);
+    CHECK(vec.capacity() >= 100);
+    CHECK(vec.empty());
+
+    vec.push_back(1);
+    vec.push_back(2);
+    vec.shrink_to_fit();
+    CHECK(vec.size() == 2);
+    CHECK(vec.capacity() == 2);
+    CHECK(vec[0] == 1);
+    CHECK(vec[1] == 2);
+  }
+
+  SECTION("resize grow and shrink") {
+    vec.resize(5, 7);
+    REQUIRE(vec.size() == 5);
+    for (int x : vec) {
+      CHECK(x == 7);
+    }
+
+    vec.resize(2);
+    REQUIRE(vec.size() == 2);
+    CHECK(vec[0] == 7);
+    CHECK(vec[1] == 7);
+
+    vec.resize(4, 9);
+    REQUIRE(vec.size() == 4);
+    CHECK(vec[0] == 7);
+    CHECK(vec[1] == 7);
+    CHECK(vec[2] == 9);
+    CHECK(vec[3] == 9);
+  }
+
+  SECTION("pop_back and clear") {
+    vec.push_back(1);
+    vec.push_back(2);
+    vec.pop_back();
+    CHECK(vec.size() == 1);
+    CHECK(vec.front() == 1);
+
+    vec.clear();
+    CHECK(vec.empty());
+    CHECK(vec.size() == 0);
+  }
+
+  SECTION("emplace_back") {
+    struct Pair {
+      int a;
+      int b;
+      Pair(int x, int y) : a(x), b(y) {}
+    };
+
+    Vec<Pair> pvec;
+    pvec.emplace_back(1, 2);
+    pvec.emplace_back(3, 4);
+    CHECK(pvec.size() == 2);
+    CHECK(pvec[0].a == 1);
+    CHECK(pvec[0].b == 2);
+    CHECK(pvec[1].a == 3);
+    CHECK(pvec[1].b == 4);
+  }
+}
+
+TEST_CASE("Vec non-trivial lifetime tracking", "[vec/Vec]") {
+  LifetimeThing::reset();
+
+  {
+    Vec<LifetimeThing> vec;
+    vec.emplace_back(1);
+    vec.emplace_back(2);
+    vec.emplace_back(3);
+    CHECK(vec.size() == 3);
+    CHECK(LifetimeThing::constructions == 3);
+
+    vec.reserve(10);
+    CHECK(vec.capacity() >= 10);
+    CHECK(vec[0].value == 1);
+    CHECK(vec[1].value == 2);
+    CHECK(vec[2].value == 3);
+
+    vec.pop_back();
+    CHECK(vec.size() == 2);
+
+    Vec<LifetimeThing> copy_vec(vec);
+    CHECK(copy_vec.size() == 2);
+
+    Vec<LifetimeThing> moved_vec(std::move(copy_vec));
+    CHECK(moved_vec.size() == 2);
+  }
+
+  CHECK(LifetimeThing::constructions + LifetimeThing::copies + LifetimeThing::moves ==
+        LifetimeThing::destructions);
+}
+
+TEST_CASE("Vec custom allocator tracking", "[vec/Vec]") {
+  TrackingAlloc<int>::Stats stats;
+  TrackingAlloc<int> alloc{&stats, 99};
+
+  {
+    Vec<int, TrackingAlloc<int>> vec(alloc);
+    CHECK(vec.allocator().id == 99);
+    CHECK(vec.empty());
+    CHECK(stats.allocations == 0);
+
+    for (int i = 0; i < 10; ++i) {
+      vec.push_back(i);
+    }
+    CHECK(vec.size() == 10);
+    CHECK(stats.allocations > 0);
+
+    Vec<int, TrackingAlloc<int>> copy_vec(vec);
+    CHECK(copy_vec.allocator().id == 99);
+    CHECK(copy_vec.size() == 10);
+
+    Vec<int, TrackingAlloc<int>> moved_vec(std::move(copy_vec));
+    CHECK(moved_vec.allocator().id == 99);
+    CHECK(moved_vec.size() == 10);
+  }
+
+  CHECK(stats.allocations == stats.deallocations);
+}
+
+TEST_CASE("Vec Span interoperability", "[vec/Vec]") {
+  Vec<int> vec;
+  vec.push_back(10);
+  vec.push_back(20);
+  vec.push_back(30);
+
+  Span<int> sp = vec;
+  REQUIRE(sp.size() == 3);
+  CHECK(sp[0] == 10);
+  CHECK(sp[1] == 20);
+  CHECK(sp[2] == 30);
+
+  sp[1] = 99;
+  CHECK(vec[1] == 99);
+
+  Span<const int> const_sp = vec;
+  CHECK(const_sp[1] == 99);
 }
