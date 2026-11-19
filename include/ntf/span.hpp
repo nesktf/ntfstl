@@ -8,7 +8,37 @@ namespace ntf {
 
 constexpr size_t dynamic_extent = (size_t)-1;
 
+template<typename T, size_t Extent>
+class Span;
+
 namespace impl {
+
+template<typename>
+struct is_span : meta::false_type {};
+
+template<typename T, size_t Extent>
+struct is_span<Span<T, Extent>> : meta::true_type {};
+
+template<typename T>
+constexpr inline bool is_span_v = is_span<meta::remove_cvref_t<T>>::value;
+
+template<typename R>
+constexpr size_t span_size(R&& r) noexcept {
+  if constexpr (requires { r.size(); }) {
+    return static_cast<size_t>(r.size());
+  } else {
+    return static_cast<size_t>(r.end() - r.begin());
+  }
+}
+
+template<typename R>
+constexpr auto span_data(R&& r) noexcept {
+  if constexpr (requires { r.data(); }) {
+    return r.data();
+  } else {
+    return r.begin() == r.end() ? nullptr : ::ntf::addressof(*r.begin());
+  }
+}
 
 template<size_t Extent>
 struct SpanExtent {
@@ -57,7 +87,7 @@ public:
   using size_type = size_t;
   using difference_type = ptrdiff_t;
 
-  static constexpr size_type extent = dynamic_extent;
+  static constexpr size_type extent = Extent;
 
 public:
   constexpr Span() noexcept
@@ -77,28 +107,38 @@ public:
   // requires(std::contiguous_iterator<It> && std::sized_sentinel_for<End, It>)
   requires(!meta::same_as<It, size_t>)
   explicit(extent != dynamic_extent) constexpr Span(It first, It last)
-  requires(meta::convertible_to<meta::remove_reference_t<decltype(*declval<It>())> (*)[],
-                                element_type (*)[]>)
-      : impl::SpanExtent<Extent>{last - first}, _data{&*first} {}
+  requires(meta::convertible_to<element_type (*)[],
+                                meta::remove_reference_t<decltype(*declval<It>())> (*)[]>)
+      :
+      impl::SpanExtent<Extent>{static_cast<size_type>(last - first)},
+      _data{first == last ? nullptr : ::ntf::addressof(*first)} {}
 
   template<typename U, size_t N>
-  constexpr Span(meta::type_identity_t<U> (&arr)[N]) noexcept
-  requires(meta::convertible_to<U (*)[], element_type (*)[]> &&
+  constexpr Span(U (&arr)[N]) noexcept
+  requires(meta::convertible_to<element_type (*)[], U (*)[]> &&
            (extent == dynamic_extent || extent == N))
       : impl::SpanExtent<Extent>{N}, _data(arr) {}
+
+  template<typename R>
+  requires(!meta::is_array_v<meta::remove_cvref_t<R>> && !impl::is_span_v<R> &&
+           meta::contiguous_range<R> &&
+           meta::convertible_to<element_type (*)[],
+                                meta::remove_reference_t<decltype(*declval<R&>().begin())> (*)[]>)
+  explicit(extent != dynamic_extent) constexpr Span(R&& r) :
+      impl::SpanExtent<Extent>{impl::span_size(r)}, _data{impl::span_data(r)} {}
 
 #ifndef NTF_NO_STD
   template<typename U, size_t N>
   constexpr Span(std::array<U, N>& arr) noexcept
-  requires(std::is_convertible_v<std::remove_pointer_t<decltype(std::data(arr))> (*)[],
-                                 element_type (*)[]> &&
+  requires(std::is_convertible_v<element_type (*)[],
+                                 std::remove_pointer_t<decltype(std::data(arr))> (*)[]> &&
            (extent == dynamic_extent || extent == N))
       : impl::SpanExtent<Extent>{N}, _data{std::data(arr)} {}
 
   template<typename U, size_t N>
   constexpr Span(const std::array<U, N>& arr) noexcept
-  requires(std::is_convertible_v<std::remove_pointer_t<decltype(std::data(arr))> (*)[],
-                                 element_type (*)[]> &&
+  requires(std::is_convertible_v<element_type (*)[],
+                                 std::remove_pointer_t<decltype(std::data(arr))> (*)[]> &&
            (extent == dynamic_extent || extent == N))
       : impl::SpanExtent<Extent>{N}, _data{std::data(arr)} {}
 
@@ -109,13 +149,13 @@ public:
   template<typename U, size_t N>
   explicit(extent != dynamic_extent &&
            N == dynamic_extent) constexpr Span(const Span<U, N>& src) noexcept
-  requires(N != extent && meta::convertible_to<U (*)[], element_type (*)[]> &&
+  requires(N != extent && meta::convertible_to<element_type (*)[], U (*)[]> &&
            (extent == dynamic_extent || N == dynamic_extent || extent == N))
       : impl::SpanExtent<Extent>{N}, _data{src.data()} {}
 
   template<typename U>
   constexpr Span(const Span<U, dynamic_extent>& src) noexcept
-  requires(meta::convertible_to<U (*)[], element_type (*)[]> && extent == dynamic_extent)
+  requires(meta::convertible_to<element_type (*)[], U (*)[]> && extent == dynamic_extent)
       : impl::SpanExtent<dynamic_extent>{src.size()}, _data{src.data()} {}
 
   constexpr Span(const Span&) noexcept = default;
@@ -129,14 +169,14 @@ public:
   requires(N <= extent || extent == dynamic_extent)
   {
     if constexpr (extent == dynamic_extent) {
-      NTF_ASSERT(N < size());
+      NTF_ASSERT(N <= size());
     }
-    return {data(), N};
+    return Span<element_type, N>{data(), N};
   }
 
   constexpr Span<element_type, dynamic_extent> first(size_type count) const {
-    NTF_ASSERT(count < size());
-    return {data(), count};
+    NTF_ASSERT(count <= size());
+    return Span<element_type, dynamic_extent>{data(), count};
   }
 
   template<size_t N>
@@ -144,14 +184,14 @@ public:
   requires(N <= extent || extent == dynamic_extent)
   {
     if constexpr (extent == dynamic_extent) {
-      NTF_ASSERT(N < size());
+      NTF_ASSERT(N <= size());
     }
-    return {data() + (size() - N), N};
+    return Span<element_type, N>{data() + (size() - N), N};
   }
 
   constexpr Span<element_type, dynamic_extent> last(size_type count) const {
-    NTF_ASSERT(count < size());
-    return {data() + (size() - count), count};
+    NTF_ASSERT(count <= size());
+    return Span<element_type, dynamic_extent>{data() + (size() - count), count};
   }
 
 public:
@@ -163,13 +203,17 @@ public:
 
   constexpr const_iterator cend() const noexcept { return _data + size(); }
 
-  constexpr reverse_iterator rbegin() const noexcept { return {_data + size() - 1}; }
+  constexpr reverse_iterator rbegin() const noexcept { return reverse_iterator{end()}; }
 
-  constexpr const_reverse_iterator crbegin() const noexcept { return {_data + size() - 1}; }
+  constexpr const_reverse_iterator crbegin() const noexcept {
+    return const_reverse_iterator{end()};
+  }
 
-  constexpr reverse_iterator rend() const noexcept { return {_data - 1}; }
+  constexpr reverse_iterator rend() const noexcept { return reverse_iterator{begin()}; }
 
-  constexpr const_reverse_iterator crend() const noexcept { return {_data - 1}; }
+  constexpr const_reverse_iterator crend() const noexcept {
+    return const_reverse_iterator{begin()};
+  }
 
 public:
   constexpr pointer data() const noexcept { return _data; }
@@ -193,6 +237,10 @@ public:
     return idx >= size() ? nullptr : data() + idx;
   }
 
+  constexpr const_pointer at_opt(size_type idx) const noexcept {
+    return idx >= size() ? nullptr : data() + idx;
+  }
+
 public:
   constexpr explicit operator bool() const noexcept { return !empty(); }
 
@@ -205,7 +253,7 @@ public:
   constexpr Span& operator=(Span&& other) noexcept = default;
 
   template<typename U, size_t N>
-  requires(meta::convertible_to<U (*)[], element_type (*)[]> &&
+  requires(meta::convertible_to<element_type (*)[], U (*)[]> &&
            (extent == dynamic_extent || N == dynamic_extent || extent == N))
   constexpr Span& operator=(const Span<U, N>& other) noexcept {
     impl::SpanExtent<Extent>::assign_extent(other.size());
@@ -216,6 +264,15 @@ public:
 private:
   pointer _data;
 };
+
+template<typename It, typename EndOrSize>
+Span(It, EndOrSize) -> Span<meta::remove_reference_t<decltype(*declval<It>())>>;
+
+template<typename T, size_t N>
+Span(T (&)[N]) -> Span<T, N>;
+
+template<typename R>
+Span(R&&) -> Span<meta::remove_reference_t<decltype(*declval<R&>().begin())>>;
 
 } // namespace ntf
 

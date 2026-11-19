@@ -271,6 +271,10 @@ public:
   static constexpr size_type max_size() noexcept { return N; }
 
 public:
+  T* data() noexcept { return _ptr(); }
+
+  const T* data() const noexcept { return _ptr(); }
+
   iterator begin() { return _ptr(); }
 
   const_iterator begin() const { return _ptr(); }

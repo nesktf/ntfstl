@@ -15,6 +15,14 @@ concept input_iterator = requires(It it) {
   requires copy_constructible<It>;
 };
 
+template<typename R>
+concept contiguous_range = requires(R&& r) {
+  { r.begin() };
+  { r.end() };
+  { r.end() - r.begin() } -> convertible_to<size_t>;
+  { *r.begin() };
+};
+
 template<typename It>
 struct iterator_traits {
   using pointer = typename It::pointer;
