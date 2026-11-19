@@ -334,12 +334,12 @@ public:
 
 public:
   SmallVec() noexcept(meta::nothrow_default_constructible<Alloc>) :
-      _data(_inline_ptr()), _size(), _capacity() {}
+      _data(_inline_ptr()), _size(), _capacity(SmallSz) {}
 
   explicit SmallVec(size_t count) : SmallVec() { resize(count); }
 
   explicit SmallVec(const Alloc& alloc) noexcept(meta::nothrow_copy_constructible<Alloc>) :
-      Alloc(alloc), _data(_inline_ptr()), _size(), _capacity() {}
+      Alloc(alloc), _data(_inline_ptr()), _size(), _capacity(SmallSz) {}
 
   explicit SmallVec(size_t count, const Alloc& alloc) : SmallVec(alloc) { resize(count); }
 
@@ -392,6 +392,7 @@ public:
         }
         other._destroy_elements();
       }
+      other._size = 0;
     } else {
       _data = other._data;
       _capacity = other._capacity;
@@ -425,11 +426,12 @@ public:
     return *this;
   }
 
-  SmallVec& operator=(SmallVec& other) noexcept(meta::nothrow_move_constructible<T>) {
+  SmallVec& operator=(SmallVec&& other) noexcept(meta::nothrow_move_constructible<T>) {
     if (this == &other) {
       return *this;
     }
     _release_storage();
+    _size = other._size;
     if (other.is_small()) {
       if constexpr (meta::trivially_copyable<T>) {
         if (other._size > 0) {
@@ -441,11 +443,9 @@ public:
         }
         other._destroy_elements();
       }
-      _size = other._size;
       other._size = 0;
     } else {
       _data = other._data;
-      _size = other._size;
       _capacity = other._capacity;
       other._data = other._inline_ptr();
       other._size = 0;
@@ -470,7 +470,9 @@ public:
         _data[i].~T();
       }
     }
-    Alloc::deallocate(_data, _capacity);
+    if (!is_small()) {
+      Alloc::deallocate(_data, _capacity);
+    }
     _data = new_buf;
     _capacity = new_cap;
   }
@@ -501,6 +503,7 @@ public:
         }
       }
     } else if (new_size > _size) {
+      reserve(new_size);
       for (size_t i = _size; i < new_size; ++i) {
         if constexpr (meta::trivially_copyable<T>) {
           memcpy(_data + i, addressof(val), sizeof(T));
