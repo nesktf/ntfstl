@@ -4,13 +4,60 @@
 
 namespace {
 
-// TODO: Check non trivial types
 struct NullableThing {
   constexpr NullableThing(int val = 0) noexcept : value{val} {}
 
   constexpr bool operator==(const NullableThing& other) const { return value == other.value; }
 
   int value;
+};
+
+struct LifetimeThing {
+  static inline int constructions = 0;
+  static inline int destructions = 0;
+  static inline int copy_constructions = 0;
+  static inline int copy_assignments = 0;
+  static inline int move_constructions = 0;
+  static inline int move_assignments = 0;
+
+  static void reset() {
+    constructions = 0;
+    destructions = 0;
+    copy_constructions = 0;
+    copy_assignments = 0;
+    move_constructions = 0;
+    move_assignments = 0;
+  }
+
+  int value = 0;
+
+  LifetimeThing() : value(0) { ++constructions; }
+  explicit LifetimeThing(int v) : value(v) { ++constructions; }
+  LifetimeThing(const LifetimeThing& other) : value(other.value) { ++copy_constructions; }
+  LifetimeThing(LifetimeThing&& other) noexcept : value(other.value) {
+    other.value = -1;
+    ++move_constructions;
+  }
+  ~LifetimeThing() { ++destructions; }
+
+  LifetimeThing& operator=(const LifetimeThing& other) {
+    if (this != &other) {
+      value = other.value;
+      ++copy_assignments;
+    }
+    return *this;
+  }
+
+  LifetimeThing& operator=(LifetimeThing&& other) noexcept {
+    if (this != &other) {
+      value = other.value;
+      other.value = -1;
+      ++move_assignments;
+    }
+    return *this;
+  }
+
+  bool operator==(const LifetimeThing& other) const noexcept { return value == other.value; }
 };
 
 } // namespace
@@ -237,4 +284,257 @@ TEST_CASE("optional emplacing & reset", "[optional]") {
   REQUIRE(opt_custom.value() == NullableThing{3});
   opt_custom.reset();
   REQUIRE(!opt_custom.has_value());
+}
+
+TEST_CASE("optional reference type optimization", "[optional/ref]") {
+  static_assert(sizeof(ntf::Optional<int&>) == sizeof(int*));
+  static_assert(sizeof(ntf::Optional<const int&>) == sizeof(const int*));
+
+  SECTION("default and nullopt construction") {
+    ntf::Optional<int&> opt;
+    CHECK(!opt.has_value());
+    CHECK(opt.empty());
+    CHECK(!opt);
+
+    ntf::Optional<int&> opt_null{ntf::nullopt};
+    CHECK(!opt_null.has_value());
+  }
+
+  SECTION("binding to lvalue") {
+    int x = 10;
+    ntf::Optional<int&> opt{x};
+    REQUIRE(opt.has_value());
+    CHECK(opt.value() == 10);
+    CHECK(*opt == 10);
+
+    *opt = 25;
+    CHECK(x == 25);
+  }
+
+  SECTION("rebinding on assignment") {
+    int a = 1;
+    int b = 2;
+    ntf::Optional<int&> opt{a};
+    CHECK(*opt == 1);
+
+    opt = b;
+    CHECK(*opt == 2);
+    *opt = 42;
+    CHECK(b == 42);
+    CHECK(a == 1);
+
+    opt = ntf::nullopt;
+    CHECK(!opt.has_value());
+  }
+
+  SECTION("const reference binding") {
+    const int cx = 100;
+    ntf::Optional<const int&> copt{cx};
+    REQUIRE(copt.has_value());
+    CHECK(*copt == 100);
+
+    int mutable_x = 200;
+    ntf::Optional<const int&> copt2{mutable_x};
+    REQUIRE(copt2.has_value());
+    CHECK(*copt2 == 200);
+  }
+
+  SECTION("value access and exceptions") {
+    ntf::Optional<int&> opt;
+    REQUIRE_THROWS_AS(opt.value(), ntf::BadOptionalAccess);
+
+    int fallback = 50;
+    CHECK(opt.value_or(fallback) == 50);
+
+    int x = 70;
+    opt = x;
+    CHECK(opt.value() == 70);
+    CHECK(opt.value_or(fallback) == 70);
+  }
+
+  SECTION("emplace and reset") {
+    int x = 12;
+    ntf::Optional<int&> opt;
+    opt.emplace(x);
+    REQUIRE(opt.has_value());
+    CHECK(*opt == 12);
+
+    opt.reset();
+    CHECK(!opt.has_value());
+  }
+
+  SECTION("arrow operator") {
+    struct Target {
+      int val = 0;
+    };
+    Target target{42};
+    ntf::Optional<Target&> opt{target};
+    REQUIRE(opt.has_value());
+    CHECK(opt->val == 42);
+    opt->val = 99;
+    CHECK(target.val == 99);
+  }
+
+  SECTION("monadic operations") {
+    int x = 5;
+    ntf::Optional<int&> opt{x};
+
+    auto transformed = opt.transform([](int& val) -> int { return val * 3; });
+    REQUIRE(transformed.has_value());
+    CHECK(*transformed == 15);
+
+    auto and_then_result = opt.and_then([](int& val) -> ntf::Optional<int&> { return {val}; });
+    REQUIRE(and_then_result.has_value());
+    CHECK(*and_then_result == 5);
+
+    ntf::Optional<int&> empty_opt;
+    auto or_else_result = empty_opt.or_else([&]() -> ntf::Optional<int&> { return {x}; });
+    REQUIRE(or_else_result.has_value());
+    CHECK(*or_else_result == 5);
+  }
+
+  SECTION("forbid rvalues") {
+    static_assert(!ntf::meta::nullable_type<int&&>);
+    static_assert(!std::is_constructible_v<ntf::Optional<int&>, int&&>);
+    static_assert(!std::is_constructible_v<ntf::Optional<const int&>, int&&>);
+  }
+}
+
+TEST_CASE("optional non-trivial lifetime tracking", "[optional/lifetime]") {
+  SECTION("construction and destruction") {
+    LifetimeThing::reset();
+    {
+      ntf::Optional<LifetimeThing> opt;
+      CHECK(!opt.has_value());
+    }
+    CHECK(LifetimeThing::constructions == 0);
+    CHECK(LifetimeThing::destructions == 0);
+
+    {
+      ntf::Optional<LifetimeThing> opt{ntf::in_place, 10};
+      CHECK(opt.has_value());
+      CHECK(opt->value == 10);
+      CHECK(LifetimeThing::constructions == 1);
+    }
+    CHECK(LifetimeThing::destructions == 1);
+    CHECK(LifetimeThing::constructions == LifetimeThing::destructions);
+  }
+
+  SECTION("copy and move construction") {
+    LifetimeThing::reset();
+    {
+      ntf::Optional<LifetimeThing> src{ntf::in_place, 42};
+      ntf::Optional<LifetimeThing> copy{src};
+      CHECK(copy.has_value());
+      CHECK(copy->value == 42);
+      CHECK(LifetimeThing::copy_constructions == 1);
+
+      ntf::Optional<LifetimeThing> moved{std::move(src)};
+      CHECK(moved.has_value());
+      CHECK(moved->value == 42);
+      CHECK(LifetimeThing::move_constructions == 1);
+    }
+    int total_created = LifetimeThing::constructions + LifetimeThing::copy_constructions +
+                        LifetimeThing::move_constructions;
+    CHECK(total_created == LifetimeThing::destructions);
+  }
+
+  SECTION("copy assignment operations") {
+    LifetimeThing::reset();
+    {
+      ntf::Optional<LifetimeThing> a{ntf::in_place, 1};
+      ntf::Optional<LifetimeThing> b{ntf::in_place, 2};
+
+      a = b;
+      CHECK(a->value == 2);
+      CHECK(LifetimeThing::copy_assignments == 1);
+
+      ntf::Optional<LifetimeThing> empty;
+      a = empty;
+      CHECK(!a.has_value());
+
+      empty = b;
+      CHECK(empty.has_value());
+      CHECK(empty->value == 2);
+      CHECK(LifetimeThing::copy_constructions == 1);
+    }
+    int total_created = LifetimeThing::constructions + LifetimeThing::copy_constructions +
+                        LifetimeThing::move_constructions;
+    CHECK(total_created == LifetimeThing::destructions);
+  }
+
+  SECTION("move assignment operations") {
+    LifetimeThing::reset();
+    {
+      ntf::Optional<LifetimeThing> a{ntf::in_place, 10};
+      ntf::Optional<LifetimeThing> b{ntf::in_place, 20};
+
+      a = std::move(b);
+      CHECK(a->value == 20);
+      CHECK(LifetimeThing::move_assignments == 1);
+
+      ntf::Optional<LifetimeThing> empty;
+      a = std::move(empty);
+      CHECK(!a.has_value());
+
+      ntf::Optional<LifetimeThing> c{ntf::in_place, 30};
+      empty = std::move(c);
+      CHECK(empty.has_value());
+      CHECK(empty->value == 30);
+      CHECK(LifetimeThing::move_constructions == 1);
+    }
+    int total_created = LifetimeThing::constructions + LifetimeThing::copy_constructions +
+                        LifetimeThing::move_constructions;
+    CHECK(total_created == LifetimeThing::destructions);
+  }
+
+  SECTION("emplace and reset") {
+    LifetimeThing::reset();
+    {
+      ntf::Optional<LifetimeThing> opt;
+      opt.emplace(5);
+      CHECK(opt.has_value());
+      CHECK(opt->value == 5);
+      CHECK(LifetimeThing::constructions == 1);
+
+      opt.emplace(15);
+      CHECK(opt->value == 15);
+      CHECK(LifetimeThing::constructions == 2);
+      CHECK(LifetimeThing::destructions == 1);
+
+      opt.reset();
+      CHECK(!opt.has_value());
+      CHECK(LifetimeThing::destructions == 2);
+    }
+    CHECK(LifetimeThing::constructions == LifetimeThing::destructions);
+  }
+
+  SECTION("reference to non-trivial type") {
+    LifetimeThing::reset();
+    {
+      LifetimeThing original{99};
+      CHECK(LifetimeThing::constructions == 1);
+
+      {
+        ntf::Optional<LifetimeThing&> opt_ref{original};
+        CHECK(opt_ref.has_value());
+        CHECK(opt_ref->value == 99);
+        CHECK(LifetimeThing::constructions == 1);
+        CHECK(LifetimeThing::copy_constructions == 0);
+        CHECK(LifetimeThing::move_constructions == 0);
+        CHECK(LifetimeThing::destructions == 0);
+
+        opt_ref->value = 100;
+        CHECK(original.value == 100);
+
+        opt_ref.reset();
+        CHECK(!opt_ref.has_value());
+        CHECK(LifetimeThing::destructions == 0);
+      }
+      CHECK(LifetimeThing::destructions == 0);
+      CHECK(original.value == 100);
+    }
+    CHECK(LifetimeThing::destructions == 1);
+    CHECK(LifetimeThing::constructions == LifetimeThing::destructions);
+  }
 }

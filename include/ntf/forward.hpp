@@ -39,6 +39,7 @@ class UniquePtr;
 template<typename T, typename Deleter>
 class UniqueArray;
 
+template<typename T>
 class Optional;
 
 template<typename T>
