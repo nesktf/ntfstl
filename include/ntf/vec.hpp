@@ -4,6 +4,8 @@
 #include <ntf/impl/iterator.hpp>
 #include <ntf/memory.hpp>
 
+#include <string.h>
+
 #ifndef NTF_NO_STD
 #include <initializer_list>
 #endif
@@ -79,7 +81,7 @@ public:
     if (other._size > 0) {
       _data = Alloc::allocate(other._size);
       if constexpr (meta::trivially_copyable<T>) {
-        memcpy(_data, other._data, other._size * sizeof(T));
+        ::memcpy(_data, other._data, other._size * sizeof(T));
       } else {
         for (size_t i = 0; i < other._size; ++i) {
           NTF_PNEW(_data + i) T(other._data[i]);
@@ -108,7 +110,7 @@ public:
     if (other._size > 0) {
       _data = Alloc::allocate(other._size);
       if constexpr (meta::trivially_copyable<T>) {
-        memcpy(_data, other._data, other._size * sizeof(T));
+        ::memcpy(_data, other._data, other._size * sizeof(T));
       } else {
         for (size_t i = 0; i < other._size; ++i) {
           NTF_PNEW(_data + i) T(other._data[i]);
@@ -140,11 +142,11 @@ public:
     T* new_buf = Alloc::allocate(new_cap);
     if constexpr (meta::trivially_copyable<T>) {
       if (_size > 0) {
-        memcpy(new_buf, _data, _size * sizeof(T));
+        ::memcpy(new_buf, _data, _size * sizeof(T));
       }
     } else {
       for (size_t i = 0; i < _size; ++i) {
-        NTF_PNEW(new_buf + i) T(move(_data[i]));
+        NTF_PNEW(new_buf + i) T(::ntf::move(_data[i]));
         _data[i].~T();
       }
     }
@@ -186,7 +188,7 @@ public:
       reserve(new_size);
       for (size_t i = _size; i < new_size; ++i) {
         if constexpr (meta::trivially_copyable<T>) {
-          memcpy(_data + i, addressof(val), sizeof(T));
+          ::memcpy(_data + i, addressof(val), sizeof(T));
         } else {
           NTF_PNEW(_data + i) T(val);
         }
@@ -200,7 +202,7 @@ public:
       reserve(_capacity == 0 ? 1 : _capacity * 2);
     }
     if constexpr (meta::trivially_copyable<T>) {
-      memcpy(_data + _size, addressof(val), sizeof(T));
+      ::memcpy(_data + _size, addressof(val), sizeof(T));
     } else {
       NTF_PNEW(_data + _size) T(val);
     }
@@ -212,9 +214,9 @@ public:
       reserve(_capacity == 0 ? 1 : _capacity * 2);
     }
     if constexpr (meta::trivially_copyable<T>) {
-      memcpy(_data + _size, addressof(val), sizeof(T));
+      ::memcpy(_data + _size, addressof(val), sizeof(T));
     } else {
-      NTF_PNEW(_data + _size) T(move(val));
+      NTF_PNEW(_data + _size) T(::ntf::move(val));
     }
     ++_size;
   }
@@ -224,7 +226,7 @@ public:
     if (_size == _capacity) {
       reserve(_capacity == 0 ? 1 : _capacity * 2);
     }
-    T* p = NTF_PNEW(_data + _size) T(forward<Args>(args)...);
+    T* p = NTF_PNEW(_data + _size) T(::ntf::forward<Args>(args)...);
     ++_size;
     return *p;
   }
@@ -251,10 +253,10 @@ public:
     }
     T* new_buf = Alloc::allocate(_size);
     if constexpr (meta::trivially_copyable<T>) {
-      memcpy(new_buf, _data, _size * sizeof(T));
+      ::memcpy(new_buf, _data, _size * sizeof(T));
     } else {
       for (size_t i = 0; i < _size; ++i) {
-        NTF_PNEW(new_buf + i) T(move(_data[i]));
+        NTF_PNEW(new_buf + i) T(::ntf::move(_data[i]));
         _data[i].~T();
       }
     }
@@ -431,7 +433,7 @@ public:
   requires(!meta::trivially_move_constructible<T>)
       : _size(other.size()) {
     for (size_type i = 0; i < other.size(); ++i) {
-      _construct(i, move(other[i]));
+      _construct(i, ::ntf::move(other[i]));
     }
   }
 
@@ -456,7 +458,7 @@ public:
     }
     if constexpr (meta::trivially_copyable<T>) {
       if (other._size > 0) {
-        memcpy(_ptr(), other._ptr(), other._size * sizeof(T));
+        ::memcpy(_ptr(), other._ptr(), other._size * sizeof(T));
       }
     } else {
       for (size_t i = 0; i < other._size; ++i) {
@@ -476,11 +478,11 @@ public:
     }
     if constexpr (meta::trivially_move_constructible<T> && meta::trivially_copyable<T>) {
       if (other._size > 0) {
-        memcpy(_ptr(), other._ptr(), other._size * sizeof(T));
+        ::memcpy(_ptr(), other._ptr(), other._size * sizeof(T));
       }
     } else {
       for (size_t i = 0; i < other._size; ++i) {
-        NTF_PNEW(_ptr() + i) T(move(other._ptr()[i]));
+        NTF_PNEW(_ptr() + i) T(::ntf::move(other._ptr()[i]));
       }
       if constexpr (!meta::trivially_destructible<T>) {
         other._destroy_range(other.begin(), other.end());
@@ -495,34 +497,34 @@ public:
   template<typename... Args>
   T& emplace_back(Args&&... args) {
     NTF_THROW_IF(_size == capacity(), BadAlloc());
-    return *_construct(_size++, forward<Args>(args)...);
+    return *_construct(_size++, ::ntf::forward<Args>(args)...);
   }
 
   T& push_back(const T& obj) { return emplace_back(obj); }
 
-  T& push_back(T&& obj) { return emplace_back(move(obj)); }
+  T& push_back(T&& obj) { return emplace_back(::ntf::move(obj)); }
 
   template<typename... Args>
   T& unchecked_emplace_back(Args&&... args) {
     NTF_ASSERT(_size < capacity());
-    return *_construct(_size++, forward<Args>(args)...);
+    return *_construct(_size++, ::ntf::forward<Args>(args)...);
   }
 
   T& unchecked_push_back(const T& obj) { return unchecked_emplace_back(obj); }
 
-  T& unchecked_push_back(T&& obj) { return unchecked_emplace_back(move(obj)); }
+  T& unchecked_push_back(T&& obj) { return unchecked_emplace_back(::ntf::move(obj)); }
 
   template<typename... Args>
   T* try_emplace_back(Args&&... args) {
     if (_size == capacity()) {
       return nullptr;
     }
-    return _construct(_size++, forward<Args>(args)...);
+    return _construct(_size++, ::ntf::forward<Args>(args)...);
   }
 
   T* try_push_back(const T& obj) { return try_emplace_back(obj); }
 
-  T* try_push_back(T&& obj) { return try_emplace_back(move(obj)); }
+  T* try_push_back(T&& obj) { return try_emplace_back(::ntf::move(obj)); }
 
   void pop_back() {
     if (empty()) {
@@ -670,7 +672,7 @@ private:
   template<typename... Args>
   T* _construct(size_type i, Args&&... args) {
     NTF_ASSERT(i < capacity());
-    return NTF_PNEW(reinterpret_cast<T*>(_data) + i) T(forward<Args>(args)...);
+    return NTF_PNEW(reinterpret_cast<T*>(_data) + i) T(::ntf::forward<Args>(args)...);
   }
 
   T* _ptr() { return launder(reinterpret_cast<T*>(_data)); }
@@ -741,7 +743,7 @@ public:
     }
     if constexpr (meta::trivially_copy_constructible<T>) {
       if (other._size > 0) {
-        memcpy(_data, other._data, other._size * sizeof(T));
+        ::memcpy(_data, other._data, other._size * sizeof(T));
       }
     } else {
       for (size_t i = 0; i < other._size; ++i) {
@@ -756,11 +758,11 @@ public:
     if (other.is_small()) {
       if constexpr (meta::trivially_copyable<T>) {
         if (other._size > 0) {
-          memcpy(_data, other._data, other._size * sizeof(T));
+          ::memcpy(_data, other._data, other._size * sizeof(T));
         }
       } else {
         for (size_t i = 0; i < other._size; ++i) {
-          NTF_PNEW(_data + i) T(move(other._data[i]));
+          NTF_PNEW(_data + i) T(::ntf::move(other._data[i]));
         }
         other._destroy_elements();
       }
@@ -787,7 +789,7 @@ public:
     }
     if constexpr (meta::trivially_copyable<T>) {
       if (other._size > 0) {
-        memcpy(_data, other._data, other._size * sizeof(T));
+        ::memcpy(_data, other._data, other._size * sizeof(T));
       }
     } else {
       for (size_t i = 0; i < other._size; ++i) {
@@ -807,11 +809,11 @@ public:
     if (other.is_small()) {
       if constexpr (meta::trivially_copyable<T>) {
         if (other._size > 0) {
-          memcpy(_data, other._data, other._size * sizeof(T));
+          ::memcpy(_data, other._data, other._size * sizeof(T));
         }
       } else {
         for (size_t i = 0; i < other._size; ++i) {
-          NTF_PNEW(_data + i) T(move(other._data[i]));
+          NTF_PNEW(_data + i) T(::ntf::move(other._data[i]));
         }
         other._destroy_elements();
       }
@@ -834,11 +836,11 @@ public:
     T* new_buf = Alloc::allocate(new_cap);
     if constexpr (meta::trivially_copyable<T>) {
       if (_size > 0) {
-        memcpy(new_buf, _data, _size * sizeof(T));
+        ::memcpy(new_buf, _data, _size * sizeof(T));
       }
     } else {
       for (size_t i = 0; i < _size; ++i) {
-        NTF_PNEW(new_buf + i) T(move(_data[i]));
+        NTF_PNEW(new_buf + i) T(::ntf::move(_data[i]));
         _data[i].~T();
       }
     }
@@ -880,7 +882,7 @@ public:
       reserve(new_size);
       for (size_t i = _size; i < new_size; ++i) {
         if constexpr (meta::trivially_copyable<T>) {
-          memcpy(_data + i, addressof(val), sizeof(T));
+          ::memcpy(_data + i, addressof(val), sizeof(T));
         } else {
           NTF_PNEW(_data + i) T(val);
         }
@@ -894,7 +896,7 @@ public:
       reserve(_capacity * 2);
     }
     if constexpr (meta::trivially_copyable<T>) {
-      memcpy(_data + _size, addressof(val), sizeof(T));
+      ::memcpy(_data + _size, addressof(val), sizeof(T));
     } else {
       NTF_PNEW(_data + _size) T(val);
     }
@@ -906,9 +908,9 @@ public:
       reserve(_capacity * 2);
     }
     if constexpr (meta::trivially_copyable<T>) {
-      memcpy(_data + _size, addressof(val), sizeof(T));
+      ::memcpy(_data + _size, addressof(val), sizeof(T));
     } else {
-      NTF_PNEW(_data + _size) T(move(val));
+      NTF_PNEW(_data + _size) T(::ntf::move(val));
     }
     ++_size;
   }
@@ -918,7 +920,7 @@ public:
     if (_size == _capacity) {
       reserve(_capacity * 2);
     }
-    T* p = NTF_PNEW(_data + _size) T(forward<Args>(args)...);
+    T* p = NTF_PNEW(_data + _size) T(::ntf::forward<Args>(args)...);
     ++_size;
     return *p;
   }
