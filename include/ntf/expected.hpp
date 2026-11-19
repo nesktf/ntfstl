@@ -2,6 +2,7 @@
 #define NTF_EXPECTED_HPP_
 
 #include <ntf/memory.hpp>
+#include <ntf/utility.hpp>
 
 namespace ntf {
 

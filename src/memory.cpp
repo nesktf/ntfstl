@@ -1,5 +1,7 @@
 #include <ntf/memory.hpp>
 
+#include <ntf/utility.hpp>
+
 #include <math.h>
 #include <stdio.h>
 #include <string.h>

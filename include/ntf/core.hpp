@@ -362,16 +362,6 @@ NTF_NODISCARD constexpr T&& forward(meta::remove_reference_t<T>&& thing) noexcep
   return static_cast<T&&>(thing);
 }
 
-template<typename T>
-constexpr const T& max(const T& a, const T& b) {
-  return a < b ? b : a;
-}
-
-template<typename T>
-constexpr const T& min(const T& a, const T& b) {
-  return a < b ? a : b;
-}
-
 #ifdef NTF_NO_STD
 template<typename T>
 NTF_NODISCARD constexpr T* launder(T* ptr) noexcept {
@@ -525,26 +515,6 @@ constexpr inline bool is_trivially_constructible_v = is_trivially_constructible<
 template<typename T>
 NTF_NODISCARD constexpr T* launder_as(void* ptr) noexcept {
   return launder(static_cast<T*>(ptr));
-}
-
-template<typename T>
-NTF_NODISCARD constexpr const T* as_const(T* p) noexcept {
-  return p;
-}
-
-template<typename T>
-NTF_NODISCARD constexpr const T* as_const(const T* p) noexcept {
-  return p;
-}
-
-template<typename T>
-NTF_NODISCARD constexpr const T& as_const(T& p) noexcept {
-  return p;
-}
-
-template<typename T>
-NTF_NODISCARD constexpr const T& as_const(const T& p) noexcept {
-  return p;
 }
 
 namespace numdefs {
