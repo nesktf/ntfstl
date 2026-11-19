@@ -156,6 +156,17 @@ TEST_CASE("InlineVec construction", "[vec/InlineVec]") {
     REQUIRE_THAT(vec, EqualsRange(std::to_array<int>({1, 2, 3, 4})));
   }
 #endif
+  SECTION("Pointer iterator copy") {
+    int arr[4] = {10, 20, 30, 40};
+    InlineVec<int, 32> vec(arr, arr + 4);
+    REQUIRE(!vec.empty());
+    REQUIRE(vec.size() == 4);
+    REQUIRE(vec.capacity() == 32);
+    REQUIRE(vec[0] == 10);
+    REQUIRE(vec[1] == 20);
+    REQUIRE(vec[2] == 30);
+    REQUIRE(vec[3] == 40);
+  }
 }
 
 TEST_CASE("InlineVec push & emplace", "[vec/InlineVec]") {
@@ -318,6 +329,13 @@ TEST_CASE("SmallVec inline storage and trivial memcpy", "[vec/SmallVec]") {
 
   assigned.clear();
   CHECK(assigned.empty());
+
+  int arr[] = {1, 2, 3, 4, 5};
+  SmallVec<int, 4> from_iter(arr, arr + 5);
+  CHECK(from_iter.size() == 5);
+  CHECK(!from_iter.is_small());
+  CHECK(from_iter[0] == 1);
+  CHECK(from_iter[4] == 5);
 }
 
 TEST_CASE("SmallVec move optimization when inline", "[vec/SmallVec]") {

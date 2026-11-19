@@ -6,8 +6,17 @@
 namespace ntf::meta {
 
 template<typename It>
+concept input_iterator = requires(It it) {
+  { *it };
+  { ++it } -> same_as<It&>;
+  { it++ };
+  { it == it } -> convertible_to<bool>;
+  { it != it } -> convertible_to<bool>;
+  requires copy_constructible<It>;
+};
+
+template<typename It>
 struct iterator_traits {
-  // TODO: Define iterator concept
   using pointer = typename It::pointer;
   using difference_type = typename It::difference_type;
   using reference = typename It::reference;

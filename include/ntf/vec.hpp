@@ -32,16 +32,16 @@ public:
       _construct(i++, v);
     }
   }
+#endif
 
   template<typename It>
   InlineVec(It first, It last)
-  requires(std::input_iterator<meta::remove_cvref_t<It>>)
+  requires(meta::input_iterator<meta::remove_cvref_t<It>>)
       : _size() {
     for (; first != last; ++first, ++_size) {
       _construct(_size, *first);
     }
   }
-#endif
 
   InlineVec(size_type n, const T& val) noexcept(meta::nothrow_copy_constructible<T>) :
       _size(n >= capacity() ? capacity() - 1 : n) {
@@ -353,16 +353,16 @@ public:
       push_back(item);
     }
   }
+#endif
 
   template<typename It>
   SmallVec(It first, It last)
-  requires(std::input_iterator<meta::remove_cvref_t<It>>)
+  requires(meta::input_iterator<meta::remove_cvref_t<It>>)
       : SmallVec() {
     for (; first != last; ++first) {
       push_back(*first);
     }
   }
-#endif
 
   SmallVec(const SmallVec& other) :
       Alloc(other.allocator()), _data(_inline_ptr()), _size(other._size), _capacity(SmallSz) {
