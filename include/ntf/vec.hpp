@@ -11,7 +11,7 @@
 namespace ntf {
 
 template<typename T, size_t N>
-class InplaceVec {
+class InlineVec {
 public:
   static_assert(N > 0, "Invalid size");
   using value_type = T;
@@ -23,10 +23,10 @@ public:
   using const_reverse_iterator = impl::reverse_iter_wrap<const_iterator>;
 
 public:
-  InplaceVec() noexcept : _size() {}
+  InlineVec() noexcept : _size() {}
 
 #ifndef NTF_NO_STD
-  InplaceVec(std::initializer_list<T> il) : _size(il.size()) {
+  InlineVec(std::initializer_list<T> il) : _size(il.size()) {
     size_type i = 0;
     for (const auto& v : il) {
       _construct(i++, v);
@@ -34,7 +34,7 @@ public:
   }
 
   template<typename It>
-  InplaceVec(It first, It last)
+  InlineVec(It first, It last)
   requires(std::input_iterator<meta::remove_cvref_t<It>>)
       : _size() {
     for (; first != last; ++first, ++_size) {
@@ -43,22 +43,22 @@ public:
   }
 #endif
 
-  InplaceVec(size_type n, const T& val) noexcept(meta::nothrow_copy_constructible<T>) :
+  InlineVec(size_type n, const T& val) noexcept(meta::nothrow_copy_constructible<T>) :
       _size(n >= capacity() ? capacity() - 1 : n) {
     for (size_type i = 0; i < _size; ++i) {
       _construct(i, val);
     }
   }
 
-  InplaceVec(const InplaceVec& other) noexcept
+  InlineVec(const InlineVec& other) noexcept
   requires(meta::trivially_copy_constructible<T>)
   = default;
 
-  InplaceVec(InplaceVec&& other) noexcept
+  InlineVec(InlineVec&& other) noexcept
   requires(meta::trivially_move_constructible<T>)
   = default;
 
-  InplaceVec(const InplaceVec& other) noexcept(meta::nothrow_copy_constructible<T>)
+  InlineVec(const InlineVec& other) noexcept(meta::nothrow_copy_constructible<T>)
   requires(!meta::trivially_copy_constructible<T>)
       : _size(other.size()) {
     for (size_type i = 0; i < other.size(); ++i) {
@@ -66,7 +66,7 @@ public:
     }
   }
 
-  InplaceVec(InplaceVec&& other) noexcept(meta::nothrow_move_constructible<T>)
+  InlineVec(InlineVec&& other) noexcept(meta::nothrow_move_constructible<T>)
   requires(!meta::trivially_move_constructible<T>)
       : _size(other.size()) {
     for (size_type i = 0; i < other.size(); ++i) {
@@ -74,19 +74,19 @@ public:
     }
   }
 
-  ~InplaceVec()
+  ~InlineVec()
   requires(!meta::trivially_destructible<T>)
   {
     _destroy_range(begin(), end());
   }
 
-  ~InplaceVec()
+  ~InlineVec()
   requires(meta::trivially_destructible<T>)
   = default;
 
 public:
-  InplaceVec& operator=(const InplaceVec& other) noexcept(meta::trivially_copyable<T> ||
-                                                          meta::nothrow_copy_constructible<T>) {
+  InlineVec& operator=(const InlineVec& other) noexcept(meta::trivially_copyable<T> ||
+                                                        meta::nothrow_copy_constructible<T>) {
     if (this == &other) {
       return *this;
     }
@@ -99,14 +99,14 @@ public:
       }
     } else {
       for (size_t i = 0; i < other._size; ++i) {
-        NTF_PNEW(_data + i) T(other._ptr()[i]);
+        NTF_PNEW(_ptr() + i) T(other._ptr()[i]);
       }
     }
     _size = other._size;
     return *this;
   }
 
-  InplaceVec& operator=(InplaceVec&& other) {
+  InlineVec& operator=(InlineVec&& other) {
     if (this == &other) {
       return *this;
     }
@@ -119,7 +119,10 @@ public:
       }
     } else {
       for (size_t i = 0; i < other._size; ++i) {
-        NTF_PNEW(_data + i) T(move(other._ptr()[i]));
+        NTF_PNEW(_ptr() + i) T(move(other._ptr()[i]));
+      }
+      if constexpr (!meta::trivially_destructible<T>) {
+        other._destroy_range(other.begin(), other.end());
       }
     }
     _size = other._size;

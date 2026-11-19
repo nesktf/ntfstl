@@ -79,18 +79,69 @@ struct LifetimeThing {
   bool operator==(const LifetimeThing& other) const noexcept { return value == other.value; }
 };
 
+template<typename T>
+struct TrackingAlloc {
+  using value_type = T;
+  using pointer = T*;
+  using size_type = size_t;
+  using difference_type = ptrdiff_t;
+
+  template<typename U>
+  using rebind = TrackingAlloc<U>;
+
+  struct Stats {
+    size_t allocations = 0;
+    size_t deallocations = 0;
+    size_t bytes_allocated = 0;
+  };
+
+  Stats* stats = nullptr;
+  int id = 0;
+
+  constexpr TrackingAlloc() noexcept = default;
+
+  constexpr TrackingAlloc(Stats* s, int i = 0) noexcept : stats(s), id(i) {}
+
+  constexpr TrackingAlloc(const TrackingAlloc&) noexcept = default;
+  constexpr TrackingAlloc& operator=(const TrackingAlloc&) noexcept = default;
+
+  template<typename U>
+  constexpr TrackingAlloc(const TrackingAlloc<U>& other) noexcept :
+      stats(other.stats), id(other.id) {}
+
+  T* allocate(size_t n) {
+    if (stats) {
+      stats->allocations++;
+      stats->bytes_allocated += n * sizeof(T);
+    }
+    T* ptr = static_cast<T*>(::malloc(n * sizeof(T)));
+    NTF_THROW_IF(!ptr, BadAlloc());
+    return ptr;
+  }
+
+  void deallocate(T* ptr, size_t n) noexcept {
+    if (stats) {
+      stats->deallocations++;
+    }
+    NTF_UNUSED(n);
+    ::free(ptr);
+  }
+
+  constexpr bool operator==(const TrackingAlloc& other) const noexcept { return id == other.id; }
+};
+
 } // namespace
 
-TEST_CASE("InplaceVec construction", "[vec/InplaceVec]") {
+TEST_CASE("InlineVec construction", "[vec/InlineVec]") {
   SECTION("Default constructor") {
-    InplaceVec<int, 32> vec;
+    InlineVec<int, 32> vec;
     REQUIRE(vec.empty());
     REQUIRE(vec.size() == 0);
     REQUIRE(vec.capacity() == 32);
   }
 #ifndef NTF_NO_STD
   SECTION("initializer_list") {
-    InplaceVec<int, 32> vec{1, 2, 3, 4};
+    InlineVec<int, 32> vec{1, 2, 3, 4};
     REQUIRE(!vec.empty());
     REQUIRE(vec.size() == 4);
     REQUIRE(vec.capacity() == 32);
@@ -98,7 +149,7 @@ TEST_CASE("InplaceVec construction", "[vec/InplaceVec]") {
   }
   SECTION("Iterator copy") {
     std::vector<int> stl_vec{1, 2, 3, 4};
-    InplaceVec<int, 32> vec(stl_vec.begin(), stl_vec.end());
+    InlineVec<int, 32> vec(stl_vec.begin(), stl_vec.end());
     REQUIRE(!vec.empty());
     REQUIRE(vec.size() == 4);
     REQUIRE(vec.capacity() == 32);
@@ -107,8 +158,8 @@ TEST_CASE("InplaceVec construction", "[vec/InplaceVec]") {
 #endif
 }
 
-TEST_CASE("InplaceVec push & emplace", "[vec/InplaceVec]") {
-  InplaceVec<int, 4> vec;
+TEST_CASE("InlineVec push & emplace", "[vec/InlineVec]") {
+  InlineVec<int, 4> vec;
   vec.push_back(1);
   vec.push_back(2);
   vec.push_back(3);
@@ -129,7 +180,93 @@ TEST_CASE("InplaceVec push & emplace", "[vec/InplaceVec]") {
   REQUIRE(vec.try_push_back(10) == nullptr);
 }
 
-TEST_CASE("SmallVec inline storage and trivial memcpy", "[engine/util/vec]") {
+TEST_CASE("InlineVec trivial copy and move operations", "[vec/InlineVec]") {
+  InlineVec<int, 4> a;
+  a.push_back(10);
+  a.push_back(20);
+
+  InlineVec<int, 4> copy_constructed(a);
+  CHECK(copy_constructed.size() == 2);
+  CHECK(copy_constructed[0] == 10);
+  CHECK(copy_constructed[1] == 20);
+  CHECK(a.size() == 2);
+
+  InlineVec<int, 4> copy_assigned;
+  copy_assigned.push_back(99);
+  copy_assigned = a;
+  CHECK(copy_assigned.size() == 2);
+  CHECK(copy_assigned[0] == 10);
+  CHECK(copy_assigned[1] == 20);
+  CHECK(a.size() == 2);
+
+  copy_assigned = copy_assigned;
+  CHECK(copy_assigned.size() == 2);
+  CHECK(copy_assigned[0] == 10);
+
+  InlineVec<int, 4> move_constructed(std::move(a));
+  CHECK(move_constructed.size() == 2);
+  CHECK(move_constructed[0] == 10);
+  CHECK(move_constructed[1] == 20);
+
+  InlineVec<int, 4> move_assigned;
+  move_assigned.push_back(50);
+  move_assigned = std::move(move_constructed);
+  CHECK(move_assigned.size() == 2);
+  CHECK(move_assigned[0] == 10);
+  CHECK(move_assigned[1] == 20);
+  CHECK(move_constructed.empty());
+}
+
+TEST_CASE("InlineVec non-trivial copy and move operations", "[vec/InlineVec]") {
+  LifetimeThing::reset();
+
+  {
+    InlineVec<LifetimeThing, 4> a;
+    a.emplace_back(1);
+    a.emplace_back(2);
+    CHECK(a.size() == 2);
+    CHECK(LifetimeThing::constructions == 2);
+
+    InlineVec<LifetimeThing, 4> copy_constructed(a);
+    CHECK(copy_constructed.size() == 2);
+    CHECK(copy_constructed[0].value == 1);
+    CHECK(copy_constructed[1].value == 2);
+    CHECK(a.size() == 2);
+    CHECK(LifetimeThing::copies == 2);
+
+    InlineVec<LifetimeThing, 4> copy_assigned;
+    copy_assigned.emplace_back(100);
+    copy_assigned.emplace_back(200);
+    copy_assigned.emplace_back(300);
+    copy_assigned = a;
+    CHECK(copy_assigned.size() == 2);
+    CHECK(copy_assigned[0].value == 1);
+    CHECK(copy_assigned[1].value == 2);
+    CHECK(a.size() == 2);
+
+    copy_assigned = copy_assigned;
+    CHECK(copy_assigned.size() == 2);
+    CHECK(copy_assigned[0].value == 1);
+
+    InlineVec<LifetimeThing, 4> move_constructed(std::move(a));
+    CHECK(move_constructed.size() == 2);
+    CHECK(move_constructed[0].value == 1);
+    CHECK(move_constructed[1].value == 2);
+
+    InlineVec<LifetimeThing, 4> move_assigned;
+    move_assigned.emplace_back(500);
+    move_assigned = std::move(move_constructed);
+    CHECK(move_assigned.size() == 2);
+    CHECK(move_assigned[0].value == 1);
+    CHECK(move_assigned[1].value == 2);
+    CHECK(move_constructed.empty());
+  }
+
+  CHECK(LifetimeThing::constructions + LifetimeThing::copies + LifetimeThing::moves ==
+        LifetimeThing::destructions);
+}
+
+TEST_CASE("SmallVec inline storage and trivial memcpy", "[vec/SmallVec]") {
   SmallVec<int, 4> vec;
   CHECK(vec.empty());
   CHECK(vec.size() == 0);
@@ -183,7 +320,7 @@ TEST_CASE("SmallVec inline storage and trivial memcpy", "[engine/util/vec]") {
   CHECK(assigned.empty());
 }
 
-TEST_CASE("SmallVec move optimization when inline", "[engine/util/vec]") {
+TEST_CASE("SmallVec move optimization when inline", "[vec/SmallVec]") {
   SmallVec<int, 4> a;
   a.push_back(1);
   a.push_back(2);
@@ -197,7 +334,7 @@ TEST_CASE("SmallVec move optimization when inline", "[engine/util/vec]") {
   CHECK(a.empty());
 }
 
-TEST_CASE("SmallVec non-trivial lifetime tracking", "[engine/util/vec]") {
+TEST_CASE("SmallVec non-trivial lifetime tracking", "[vec/SmallVec]") {
   LifetimeThing::reset();
 
   {
@@ -216,4 +353,69 @@ TEST_CASE("SmallVec non-trivial lifetime tracking", "[engine/util/vec]") {
   }
 
   CHECK(LifetimeThing::constructions + LifetimeThing::moves == LifetimeThing::destructions);
+}
+
+TEST_CASE("SmallVec custom allocator and propagation", "[vec/SmallVec]") {
+  TrackingAlloc<int>::Stats stats;
+  TrackingAlloc<int> alloc{&stats, 42};
+
+  {
+    SmallVec<int, 4, TrackingAlloc<int>> vec(alloc);
+    CHECK(vec.allocator().id == 42);
+    CHECK(vec.empty());
+    CHECK(vec.is_small());
+    CHECK(stats.allocations == 0);
+    CHECK(stats.deallocations == 0);
+
+    for (int i = 0; i < 4; ++i) {
+      vec.push_back(i);
+    }
+    CHECK(vec.size() == 4);
+    CHECK(vec.is_small());
+    CHECK(stats.allocations == 0);
+
+    vec.push_back(4);
+    CHECK(!vec.is_small());
+    CHECK(stats.allocations == 1);
+    CHECK(stats.deallocations == 0);
+
+    for (int i = 5; i < 8; ++i) {
+      vec.push_back(i);
+    }
+    CHECK(stats.allocations == 1);
+
+    vec.push_back(8);
+    CHECK(stats.allocations == 2);
+    CHECK(stats.deallocations == 1);
+    CHECK(vec.size() == 9);
+
+    SmallVec<int, 4, TrackingAlloc<int>> copy_vec(vec);
+    CHECK(copy_vec.allocator().id == 42);
+    CHECK(!copy_vec.is_small());
+    CHECK(copy_vec.size() == 9);
+    CHECK(stats.allocations == 3);
+
+    SmallVec<int, 4, TrackingAlloc<int>> moved_vec(std::move(copy_vec));
+    CHECK(moved_vec.allocator().id == 42);
+    CHECK(!moved_vec.is_small());
+    CHECK(moved_vec.size() == 9);
+    CHECK(stats.allocations == 3);
+  }
+
+  CHECK(stats.allocations == stats.deallocations);
+
+  {
+    TrackingAlloc<int>::Stats count_stats;
+    TrackingAlloc<int> count_alloc{&count_stats, 7};
+
+    SmallVec<int, 4, TrackingAlloc<int>> small_sized(3, count_alloc);
+    CHECK(small_sized.is_small());
+    CHECK(small_sized.size() == 3);
+    CHECK(count_stats.allocations == 0);
+
+    SmallVec<int, 4, TrackingAlloc<int>> large_sized(10, count_alloc);
+    CHECK(!large_sized.is_small());
+    CHECK(large_sized.size() == 10);
+    CHECK(count_stats.allocations == 1);
+  }
 }
